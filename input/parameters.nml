@@ -1,0 +1,25 @@
+&network
+    graph_type = "ER"
+    directed   = .true.
+    N          = 4
+    p          = 0.5
+/
+
+&dynamics
+    r_mean     = 1.0
+    r_std      = 0.1
+    weight_mean = 1
+    weight_std  = 0.1
+/
+
+&noise
+    sigma_mean = 0.01
+/
+
+&simulation
+    dt       = 0.0005
+    t_relax  = 100.0
+    t_sample = 10000.0
+    lag_steps = 1
+    seed     = 1
+/

@@ -1,0 +1,10 @@
+build/
+*.o
+*.mod
+*.smod
+*.exe
+*.a
+*.so
+
+output/*
+!output/.gitkeep

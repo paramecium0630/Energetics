@@ -1,0 +1,8 @@
+name = "Energetics"
+version = "0.1.0"
+license = "license"
+author = "paramecium"
+maintainer = "zxc22762246@gmail.com"
+copyright = "Copyright 2026, paramecium"
+[dependencies]
+stdlib = "*"
