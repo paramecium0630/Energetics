@@ -4,12 +4,10 @@ module output_mod
 
 contains
 
-    subroutine write_node_results(filename, r, noise, mean_x, mean_force)
+    subroutine write_node_results(filename, r, noise)
         character(len=*), intent(in) :: filename
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: noise(:, :)
-        real(dp), intent(in) :: mean_x(:)
-        real(dp), intent(in) :: mean_force(:)
         integer :: i, n
         integer :: io_unit
 
@@ -21,7 +19,7 @@ contains
         write(io_unit, '(A)') "Node Results"
         write(io_unit, '(A)') "Node Index, r, noise, mean_x, mean_force"
         do i = 1, n
-            write(io_unit, '(*(G0,:,","))') i, r(i), noise(i,i), mean_x(i), mean_force(i)
+            write(io_unit, '(*(G0,:,","))') i, r(i), noise(i,i)
         end do
 
         close(io_unit)
@@ -72,6 +70,26 @@ contains
 
         close(io_unit)
     end subroutine write_jacobian_results
+
+    subroutine write_mean_results(filename, mean_x, mean_f)
+        character(len=*), intent(in) :: filename
+        real(dp), intent(in) :: mean_x(:), mean_f(:)
+        integer :: i, n
+        integer :: io_unit
+
+        n = size(mean_x)
+
+        open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
+        if (i /= 0) error stop "Error opening file for writing: "//filename
+
+        write(io_unit, '(A)') "Mean Results"
+        write(io_unit, '(A)') "Node, <x>, <F>"
+
+        do i = 1, n
+            write(io_unit, '(*(G0,:,","))') i, mean_x(i), mean_f(i)
+        end do
+
+    end subroutine write_mean_results
 
     subroutine write_correlation_results(filename, K0, Ktau)
         character(len=*), intent(in) :: filename
@@ -140,5 +158,29 @@ contains
 
         close(io_unit)
     end subroutine write_energetics_results
+
+    ! subroutine write_FCNN_results(filename, n_hidden, layer_sizes, heat_rate, work_rate, &
+    !                      internal_rate, entropy_rate)
+    !     character(len=*), intent(in) :: filename      
+    !     integer, intent(in) :: layer_sizes(:)          
+    !     real(dp), intent(in) :: heat_rate(:), work_rate(:)
+    !     real(dp), intent(in) :: internal_rate(:), entropy_rate(:)
+    !     integer :: i, n_hidden, n_layers
+    !     integer :: io_unit
+
+    !     n_layers = n_hidden + 2
+
+    !     open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
+    !     if (i /= 0) error stop "Error opening file for writing: "//filename
+
+    !     write(io_unit, '(A)') "FCNN Energetics Results"
+    !     write(io_unit, '(A)') "layer, heat_rate, entropy_rate, work_rate, internal_rate"
+
+    !     do i = 1, n_layers
+    !         write(io_unit, '(*(G0,:,","))') i, layer_heat_rate(i), layer_entropy_rate(i), &
+    !         layer_work_rate(i), layer_internal_rate(i)
+    !     end do
+
+    ! end subroutine write_FCNN_results
 
 end module output_mod

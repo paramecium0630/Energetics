@@ -50,7 +50,97 @@ contains
     subroutine generate_ws
 
     end subroutine generate_ws
-    subroutine generate_fcnn()
+
+    subroutine generate_fcnn(param, n_hidden, layer_sizes, adj_matrix, W)
+        type(SimulationParameters), intent(in) :: param
+        integer, intent(in) :: n_hidden
+        integer, intent(in) :: layer_sizes(:) ! no. of nodes in each layer
+        logical, allocatable, intent(out) :: adj_matrix(:,:)
+        real(dp), allocatable, intent(out) :: W(:,:)
+        
+        integer :: layer
+        integer :: source_node, target_node
+        integer :: source_first, source_last
+        integer :: target_first, target_last
+        integer :: n_layers, n_total
+        integer, allocatable :: offset(:)
+        real(dp) :: weight
+
+        !-----------------------------------------
+        ! 1. 檢查輸入
+        !-----------------------------------------
+
+        if (n_hidden < 0) then
+            error stop "n_hidden must be nonnegative"
+        end if
+
+        n_layers = n_hidden + 2
+
+        if (size(layer_sizes) /= n_layers) then
+            error stop "layer_sizes must contain input, hidden, and output layers"
+        end if
+
+        if (any(layer_sizes <= 0)) then
+            error stop "Every layer must contain at least one node"
+        end if
+
+        n_total = sum(layer_sizes) ! total no. of nodes
+
+        if (param%N /= n_total) then
+            error stop "param%N does not match sum(layer_sizes)"
+        end if
+
+        !-----------------------------------------
+        ! 2. 配置與初始化矩陣
+        !-----------------------------------------
+
+        allocate(adj_matrix(n_total, n_total))
+        allocate(W(n_total, n_total))
+
+        adj_matrix = .false.
+        W = 0.0_dp
+
+        !-----------------------------------------
+        ! 3. 計算每層的 offset (offset(n) = no. of nodes before n^th layer)
+        !-----------------------------------------
+
+        allocate(offset(n_layers)); offset(1) = 0
+
+        do layer = 2, n_layers
+            offset(layer) = offset(layer-1) + layer_sizes(layer-1)
+        end do
+
+        !-----------------------------------------
+        ! 4. 連接相鄰兩層
+        !-----------------------------------------
+
+        do layer = 1, n_layers - 1
+
+            source_first = offset(layer) + 1 ! the first node in the n^th layer
+            source_last  = offset(layer) + layer_sizes(layer) ! the last node in the n^th layer
+
+            target_first = offset(layer+1) + 1 ! the first node in the n^th layer
+            target_last  = offset(layer+1) + layer_sizes(layer+1) ! the last node in the n^th layer
+
+            do source_node = source_first, source_last
+                do target_node = target_first, target_last
+
+                    weight = param%weight_mean
+
+                    ! source -> target
+                    adj_matrix(target_node, source_node) = .true.
+                    W(target_node, source_node) = weight
+
+                    ! ! 如果需要 undirected layered network
+                    ! if (.not. param%directed) then
+                    !     adj_matrix(source_node, target_node) = .true.
+                    !     W(source_node, target_node) = weight
+                    ! end if
+
+                enddo
+            enddo
+
+        enddo
 
     end subroutine generate_fcnn
 

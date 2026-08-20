@@ -1,7 +1,8 @@
 &network
-    graph_type = "ER"
-    directed   = .true.
-    N          = 4
+    ! N, directed : not for FCNN
+    N          = 10
+    directed   = .false.
+    graph_type = "FCNN"    
     p          = 0.5
 /
 
@@ -17,6 +18,7 @@
 /
 
 &simulation
+    run_simulation = .false.
     dt       = 0.0005
     t_relax  = 100.0
     t_sample = 10000.0

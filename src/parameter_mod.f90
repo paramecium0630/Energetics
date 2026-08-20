@@ -4,11 +4,13 @@ module parameter_mod
     implicit none
 
     type :: SimulationParameters
-        ! Network
-        integer :: N ! Number of nodes
-        character(len=16) :: graph_type ! Type of graph (e.g., "ER", "BA", "WS", "FCNN")
-        logical :: directed ! Whether the graph is directed
-        real(dp) :: p ! Probability for ER graph
+        character(len=16) :: graph_type
+        ! 最後解析完成的通用資訊
+        integer :: N ! no. of nodes
+        logical :: directed
+
+        ! ER
+        real(dp) :: p
 
         ! Dynamics
         real(dp) :: r_mean ! Mean r
@@ -20,6 +22,7 @@ module parameter_mod
         real(dp) :: sigma_mean ! Mean noise strength
 
         ! Simulation
+        logical :: run_simulation
         real(dp) :: dt ! Time step
         real(dp) :: t_relax ! Relaxation time
         real(dp) :: t_sample ! Sampling time
@@ -42,7 +45,7 @@ contains
         ! Local variables for namelist
         integer :: N
         character(len=16) :: graph_type
-        logical :: directed
+        logical :: directed, run_simulation
         real(dp) :: p
 
         real(dp) :: r_mean
@@ -65,7 +68,7 @@ contains
 
         namelist /noise/ sigma_mean
 
-        namelist /simulation/ dt, t_relax, t_sample, lag_steps, seed
+        namelist /simulation/ run_simulation, dt, t_relax, t_sample, lag_steps, seed
 
         ! Default values
         N           = 100
@@ -80,6 +83,7 @@ contains
 
         sigma_mean  = 0.01_dp
 
+        run_simulation = .true.    
         dt          = 0.001_dp
         t_relax     = 100.0_dp
         t_sample    = 1000.0_dp
@@ -166,12 +170,14 @@ contains
 
         ! Set r values
         do i = 1, param%N
-            r(i) = param%r_mean + param%r_std * rand_normal()
+            ! r(i) = param%r_mean + param%r_std * rand_normal()
+            r(i) = param%r_mean
         end do
 
         ! Set noise values
         do i = 1, param%N
-            noise(i, i) = param%sigma_mean * (rand_uniform() + 0.5_dp) ! Example: noise on the diagonal
+            ! noise(i, i) = param%sigma_mean * (rand_uniform() + 0.5_dp) ! Example: noise on the diagonal
+            noise(i, i) = param%sigma_mean
         end do
 
     end subroutine set_parameters
