@@ -35,7 +35,8 @@ contains
                     if (rand_uniform() < param%p) then
                         adj_matrix(i, j) = .true.
                         adj_matrix(j, i) = .true.
-                        W(i, j) = param%weight_mean + param%weight_std * rand_normal()
+                        ! W(i, j) = param%weight_mean + param%weight_std * rand_normal()
+                        W(i, j) = -param%weight_mean + param%weight_std * rand_normal()
                         W(j, i) = W(i, j) ! Symmetric weights for undirected graph
                     end if
                 end do
@@ -143,5 +144,103 @@ contains
         enddo
 
     end subroutine generate_fcnn
+
+    subroutine read_weighted_edge_list(filename, adj_matrix, W, n_nodes)
+        use, intrinsic :: iso_fortran_env, only : iostat_end
+
+        character(len=*), intent(in) :: filename
+        logical, allocatable, intent(out) :: adj_matrix(:,:)
+        real(dp), allocatable, intent(out) :: W(:,:)
+        integer, intent(out) :: n_nodes
+
+        character(len=1024) :: line
+        integer :: io_unit
+        integer :: io_status, parse_status
+        integer :: line_number
+        integer :: i, j, n_edges
+        real(dp) :: wij        
+
+        open(newunit=io_unit, file=trim(filename), & ! 移除右邊空白
+         status="old", action="read", iostat=io_status)
+
+        if (io_status /= 0) then
+            error stop "Cannot open weighted edge-list file"
+        end if
+
+        n_nodes = 0
+        n_edges = 0
+        line_number = 0
+
+        do
+            read(io_unit, '(A)', iostat=io_status) line
+            if (io_status == iostat_end) exit
+            if (io_status /= 0) then
+                error stop "Error reading weighted edge-list file"
+            end if
+
+            line_number = line_number + 1
+            line = adjustl(line) ! 移除左邊空白
+
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == "#" .or. line(1:1) == "!") cycle
+
+            read(line, *, iostat=parse_status) i, j, wij
+
+            if (parse_status /= 0) then
+                error stop "Invalid weighted edge-list record"
+            end if
+            if (i <= 0 .or. j <= 0) then
+                error stop "Node indices must start from 1"
+            end if
+            if (i == j) then
+                error stop "Self-loops are not supported"
+            end if
+            n_nodes = max(n_nodes, i, j)
+            n_edges = n_edges + 1
+        end do
+
+        if (n_edges == 0) then
+            error stop "Weighted edge-list file is empty"
+        end if
+
+        allocate(adj_matrix(n_nodes,n_nodes))
+        allocate(W(n_nodes,n_nodes))
+
+        adj_matrix = .false.
+        W = 0.0_dp
+
+        rewind(io_unit)
+
+        do
+            read(io_unit, '(A)', iostat=io_status) line
+            if (io_status == iostat_end) exit
+            if (io_status /= 0) then
+                error stop "Error reading weighted edge-list file"
+            end if
+
+            line = adjustl(line)
+
+            if (len_trim(line) == 0) cycle
+            if (line(1:1) == "#" .or. line(1:1) == "!") cycle
+
+            read(line, *, iostat=parse_status) i, j, wij
+
+            if (parse_status /= 0) then
+                error stop "Invalid weighted edge-list record"
+            end if
+
+            ! 重複 edge 不應默默覆蓋
+            if (adj_matrix(i,j)) then
+                error stop "Duplicate edge in weighted edge-list file"
+            end if
+
+            ! j -> i
+            adj_matrix(i,j) = .true.
+            W(i,j) = wij
+        end do
+
+        close(io_unit)
+
+    end subroutine read_weighted_edge_list                          
 
 end module network_mod

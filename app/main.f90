@@ -16,12 +16,13 @@ program main
     real(dp) :: cpu_program_start, cpu_program_end
     real(dp) :: cpu_relax_start, cpu_relax_end
     real(dp) :: cpu_sample_start, cpu_sample_end
+    real(dp) :: max_real_part
 
     integer, allocatable :: layer_sizes(:)
     integer :: nstep, n_relax, n_hidden
     logical, allocatable :: adj_matrix(:,:)
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
-    real(dp), allocatable :: x(:), y(:), force(:), Q(:, :)
+    real(dp), allocatable :: x(:), y(:), force(:), Q(:, :), fixpoint(:)
     real(dp), allocatable :: mean_x(:), mean_force(:), K0(:, :), Ktau(:, :)
     real(dp), allocatable :: K0_theory(:, :), Ktau_theory(:, :)
     real(dp), allocatable :: alpha(:, :), alpha_sim(:, :), delta(:, :)
@@ -59,12 +60,13 @@ program main
     print *, "-------------------------------"
 
     print *, "run_simulation = ", param%run_simulation
+    if (param%run_simulation) then
     print *, "dt       = ", param%dt
     print *, "t relax  = ", param%t_relax
     print *, "t sample = ", param%t_sample
     print *, "lag steps = ", param%lag_steps
     print *, "seed     = ", param%seed
-
+    endif
     ! Initialize the random number generator with the specified seed
     call initialize_seed(param%seed)
     
@@ -79,10 +81,18 @@ program main
     case("FCNN")      
       n_hidden = 2
       allocate(layer_sizes(n_hidden+2))      
-      layer_sizes = 10; layer_sizes(1) = 8; layer_sizes(n_hidden+2) = 2
+      layer_sizes = 256; layer_sizes(1) = 784; layer_sizes(n_hidden+2) = 10
       param%N = sum(layer_sizes)
       param%directed = .true.
       call generate_FCNN(param, n_hidden, layer_sizes, adj_matrix, W)
+
+    case ("EXTERNAL")
+
+      call read_weighted_edge_list(trim(param%network_file), &
+        adj_matrix, W, param%N)
+
+      param%directed = .true.
+
     end select
     
     print *, "-------------------------------"
@@ -103,12 +113,16 @@ program main
     allocate(K0_theory(param%N, param%N), Ktau_theory(param%N, param%N), delta(param%N, param%N))
     allocate(alpha(param%N, param%N), alpha_sim(param%N, param%N))
 
+    allocate(fixpoint(param%N))
+    fixpoint = 0.0_dp
+
     call construct_Q(r, W, Q)    
     
-    call write_jacobian_results('output/Q.csv', Q)
+    ! call write_jacobian_results('output/Q.csv', Q)
 
     ! Theory
-    call solve_lyapunov(Q, -noise, K0_theory) ! Solve K0, alpha 
+    call solve_lyapunov(Q, -noise, K0_theory, max_real_part) ! Solve K0, alpha 
+    print *, "max Re(lambda(Q)) =", max_real_part
 
     call analytic_result(Q, noise, K0_theory, param%lag_steps*param%dt, & ! Solve delta, alpha, Ktau
         delta, alpha, Ktau_theory)
@@ -146,13 +160,13 @@ program main
     ! Langevin simulation
     do i = 1, nstep
         call compute_force(x, r, W, force)
-        y = x - 1.0_dp ! y = x - 1, y(t)
+        y = x - fixpoint ! y = x - 1, y(t)
         ! statistics 使用 t 時刻的 y 與 nonlinear force
         call update_statistics(stat, y, force) ! x(t), f(t)
         ! x(t) -> x(t+dt)
         call langevin_step(x, force, noise, param%dt)
         ! t+dt 時刻
-        y_next = x - 1.0_dp ! y(t+dt)
+        y_next = x - fixpoint ! y(t+dt)
         ! Stratonovich midpoint energetics
         call update_energetics_linear(energy, y, y_next, param%dt) ! y(t+dt) - y(t)
         call show_progress("Sampling", i, nstep, sample_percent)
@@ -160,7 +174,7 @@ program main
 
     call cpu_time(cpu_sample_end)
 
-    call finalize_statistics(stat, mean_x, mean_force, K0, Ktau) ! calculate covariance, mean_x, mean_f
+    call finalize_statistics(stat, fixpoint, mean_x, mean_force, K0, Ktau) ! calculate covariance, mean_x, mean_f
     call finalize_energetics(energy, heat_rate, work_rate, & ! calculate average energetic rates
                          internal_rate, entropy_rate)
 
@@ -172,14 +186,12 @@ program main
     call write_energetics_results('output/energetics.csv', heat_rate, work_rate, &
                          internal_rate, entropy_rate)
 
-    
-
     print *, "-------------------------------"
     print *, "Theory verification"
     print *, "-------------------------------"
     print *, "max |K0 - K0_theory| =", maxval(abs(K0 - K0_theory))
     print *, "max |Ktau - Ktau_theory| =", maxval(abs(Ktau - Ktau_theory))
-    print *, "max |x - 1| after relaxation =", maxval(abs(x - 1.0_dp))
+    print *, "max |x - x*| after relaxation =", maxval(abs(x - fixpoint))
     print *, "max |alpha - alpha_sim| =", maxval(abs(alpha - alpha_sim))
 
     print *, "-------------------------------"
@@ -200,14 +212,18 @@ program main
     print *, "-------------------------------"
     print *, "Energetics (Simulation and Theory)"
     print *, "-------------------------------"
-    print *, "Total Q - Total W", &
-    sum(heat_rate_theory - work_rate_theory)  
+    print *, "Total Q", &
+    sum(heat_rate_theory)  
+    print *, "Total S", &
+    sum(entropy_rate_theory)  
+    print *, "Total W", &
+    sum(work_rate_theory)  
 
     end if  
 
-    call write_correlation_results( &
-    'output/correlation_theory.csv', &
-    K0_theory, Ktau_theory)
+    ! call write_correlation_results( &
+    ! 'output/correlation_theory.csv', &
+    ! K0_theory, Ktau_theory)
 
     call write_energetics_results( &
     'output/energetics_theory.csv', &

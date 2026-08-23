@@ -17,7 +17,7 @@ contains
         if (i /= 0) error stop "Error opening file for writing: "//filename
 
         write(io_unit, '(A)') "Node Results"
-        write(io_unit, '(A)') "Node Index, r, noise, mean_x, mean_force"
+        write(io_unit, '(A)') "Node Index, r, noise"
         do i = 1, n
             write(io_unit, '(*(G0,:,","))') i, r(i), noise(i,i)
         end do

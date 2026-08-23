@@ -1,15 +1,15 @@
 &network
     ! N, directed : not for FCNN
-    N          = 10
+    N          = 50
     directed   = .false.
     graph_type = "FCNN"    
-    p          = 0.5
+    p          = 0.2
 /
 
 &dynamics
     r_mean     = 1.0
     r_std      = 0.1
-    weight_mean = 1
+    weight_mean = -0.05080797451021166
     weight_std  = 0.1
 /
 

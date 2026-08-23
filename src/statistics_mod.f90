@@ -78,9 +78,10 @@ contains
         stat%n_sample = stat%n_sample + 1
     end subroutine update_statistics
 
-    subroutine finalize_statistics(stat, mean_x, mean_force, K0, Ktau)
+    subroutine finalize_statistics(stat, fixpoint, mean_x, mean_force, K0, Ktau)
         type(StatisticsState), intent(inout) :: stat
         integer :: n
+        real(dp), intent(in) :: fixpoint(:)
         real(dp) :: inv_samples, inv_lag_pairs
         real(dp), allocatable, intent(out) :: mean_x(:), mean_force(:), K0(:,:), Ktau(:,:)
         real(dp), allocatable :: mean_y(:)
@@ -101,7 +102,7 @@ contains
         inv_lag_pairs = 1.0_dp / real(stat%n_lag_pairs, dp) ! Inverse of lag pairs
 
         mean_y = stat%sum_y * inv_samples
-        mean_x = 1.0_dp + mean_y
+        mean_x = fixpoint + mean_y
         mean_force = stat%sum_force * inv_samples
 
         K0 = stat%sum_yy * inv_samples

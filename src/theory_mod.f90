@@ -11,13 +11,13 @@ contains
 
     end function dummy_select
 
-    subroutine solve_lyapunov(A, C, X)
+    subroutine solve_lyapunov(A, C, X, max_real_part)
     ! solve AX + XA^T = C
         integer :: n, lwork
         integer :: info, sdim
         real(dp), intent(in) :: A(:, :)
         real(dp), intent(in) :: C(:, :)
-        real(dp), intent(out) :: X(:, :)
+        real(dp), intent(out) :: X(:, :), max_real_part
         
         real(dp) :: scale
 
@@ -82,6 +82,14 @@ contains
             error stop "DGEES failed"
         end if
 
+        ! 穩定性檢查：continuous-time system
+        max_real_part = maxval(wr)
+
+        if (max_real_part >= 0.0_dp) then
+            print *, "max Re(lambda(Q)) =", max_real_part
+            error stop "Q is not Hurwitz stable"
+        end if
+
         ! -------------------------------------------------
         ! 3. F = U^T C U
         ! -------------------------------------------------
@@ -142,9 +150,9 @@ contains
 
         alpha = matmul(K, transpose(Q)) - matmul(Q, K)
 
-        expmatrix = expm(Q*tau)
+        ! expmatrix = expm(Q*tau)
 
-        Ktau = matmul(expmatrix, K)
+        ! Ktau = matmul(expmatrix, K)
 
     end subroutine analytic_result
 

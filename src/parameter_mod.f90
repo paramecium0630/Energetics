@@ -4,6 +4,7 @@ module parameter_mod
     implicit none
 
     type :: SimulationParameters
+        character(len=256) :: network_file
         character(len=16) :: graph_type
         ! 最後解析完成的通用資訊
         integer :: N ! no. of nodes
@@ -45,6 +46,7 @@ contains
         ! Local variables for namelist
         integer :: N
         character(len=16) :: graph_type
+        character(len=256) :: network_file
         logical :: directed, run_simulation
         real(dp) :: p
 
@@ -62,7 +64,7 @@ contains
         integer :: seed
 
         ! Namelist definitions
-        namelist /network/ N, graph_type, directed, p
+        namelist /network/ N, graph_type, directed, p, network_file
 
         namelist /dynamics/ r_mean, r_std, weight_mean, weight_std
 
@@ -75,6 +77,7 @@ contains
         graph_type  = "ER"
         directed    = .true.
         p           = 0.2_dp
+        network_file = "input/weight_matrix.dat"
 
         r_mean      = 1.0_dp
         r_std       = 0.1_dp
@@ -140,6 +143,7 @@ contains
         param%graph_type  = graph_type
         param%directed    = directed
         param%p           = p
+        param%network_file = network_file
 
         param%r_mean      = r_mean
         param%r_std       = r_std ! Default value, can be modified later
@@ -148,6 +152,7 @@ contains
 
         param%sigma_mean  = sigma_mean
 
+        param%run_simulation = run_simulation
         param%dt          = dt
         param%t_relax     = t_relax
         param%t_sample    = t_sample
