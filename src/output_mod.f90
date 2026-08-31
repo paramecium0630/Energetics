@@ -89,6 +89,7 @@ contains
             write(io_unit, '(*(G0,:,","))') i, mean_x(i), mean_f(i)
         end do
 
+        close(io_unit)
     end subroutine write_mean_results
 
     subroutine write_correlation_results(filename, K0, Ktau)

@@ -81,7 +81,7 @@ program main
     case("FCNN")      
       n_hidden = 2
       allocate(layer_sizes(n_hidden+2))      
-      layer_sizes = 256; layer_sizes(1) = 784; layer_sizes(n_hidden+2) = 10
+      layer_sizes = 100; layer_sizes(1) = 800; layer_sizes(n_hidden+2) = 10
       param%N = sum(layer_sizes)
       param%directed = .true.
       call generate_FCNN(param, n_hidden, layer_sizes, adj_matrix, W)
@@ -114,7 +114,7 @@ program main
     allocate(alpha(param%N, param%N), alpha_sim(param%N, param%N))
 
     allocate(fixpoint(param%N))
-    fixpoint = 0.0_dp
+    fixpoint = 1.0_dp
 
     call construct_Q(r, W, Q)    
     

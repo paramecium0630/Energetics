@@ -35,8 +35,8 @@ contains
                     if (rand_uniform() < param%p) then
                         adj_matrix(i, j) = .true.
                         adj_matrix(j, i) = .true.
-                        ! W(i, j) = param%weight_mean + param%weight_std * rand_normal()
-                        W(i, j) = -param%weight_mean + param%weight_std * rand_normal()
+                        W(i, j) = param%weight_mean + param%weight_std * rand_normal()
+                        ! W(i, j) = -param%weight_mean + param%weight_std * rand_normal()
                         W(j, i) = W(i, j) ! Symmetric weights for undirected graph
                     end if
                 end do

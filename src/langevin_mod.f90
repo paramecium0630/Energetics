@@ -28,8 +28,8 @@ contains
         ! Initialize Q with W and set diagonal elements
         Q = W ! Q_ij = W_ij for i ≠ j
         do i = 1, n
-            ! Q(i, i) = -r(i) - sum(W(i, :)) + W(i, i) ! Q_ii = -r_i - sum_j W_ij
-            Q(i, i) = -r(i)
+            Q(i, i) = -r(i) - sum(W(i, :)) + W(i, i) ! Q_ii = -r_i - sum_j W_ij
+            ! Q(i, i) = -r(i)
         end do
     end subroutine construct_Q
 
@@ -42,8 +42,8 @@ contains
 
         allocate(x(n), y(n), force(n))
         
-        ! x = 1.0_dp
-        x = 0.0_dp
+        x = 1.0_dp
+        ! x = 0.0_dp
         y = 0.0_dp
         force = 0.0_dp
 
@@ -65,13 +65,13 @@ contains
             error stop "x and W size mismatch"
         end if
 
-        ! force = r * x * (1.0_dp - x)
-        force = -r * x
+        force = r * x * (1.0_dp - x)
+        ! force = -r * x
 
         do i = 1, n
             do j = 1, n
-                ! force(i) = force(i) + W(i, j) * (x(j) - x(i))
-                force(i) = force(i) + W(i, j) * x(j)
+                force(i) = force(i) + W(i, j) * (x(j) - x(i))
+                ! force(i) = force(i) + W(i, j) * x(j)
             end do
         end do
 

@@ -9,7 +9,7 @@
 &dynamics
     r_mean     = 1.0
     r_std      = 0.1
-    weight_mean = -0.05080797451021166
+    weight_mean = 1.0
     weight_std  = 0.1
 /
 
