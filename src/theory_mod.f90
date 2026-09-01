@@ -4,6 +4,50 @@ module theory_mod
 
 contains
 
+    logical function is_upper_triangular(A, tol)
+        real(dp), intent(in) :: A(:, :)
+        real(dp), intent(in) :: tol
+        integer :: n, i
+
+        n = size(A, 1)
+
+        if (size(A, 2) /= n) error stop "A must be square"
+        if (tol < 0.0_dp) error stop "tol must be non-negative"
+
+        is_upper_triangular = .true.
+
+        do i = 2, n
+        ! 第 i 欄、對角線左側：下三角元素
+            if (any(abs(A(i, 1:i-1)) > tol)) then
+                is_upper_triangular = .false.
+                return
+            end if
+        end do
+
+    end function is_upper_triangular
+
+    logical function is_lower_triangular(A, tol)
+        real(dp), intent(in) :: A(:, :)
+        real(dp), intent(in) :: tol
+        integer :: n, i
+
+        n = size(A, 1)
+
+        if (size(A, 2) /= n) error stop "A must be square"
+        if (tol < 0.0_dp) error stop "tol must be non-negative"
+
+        is_lower_triangular = .true.
+
+        do i = 2, n
+        ! 第 i 欄、對角線右側：上三角元素
+            if (any(abs(A(1:i-1, i)) > tol)) then
+                is_lower_triangular = .false.
+                return
+            end if
+        end do
+
+    end function is_lower_triangular
+
     logical function dummy_select(wr, wi)
         real(dp), intent(in) :: wr, wi
 
@@ -11,10 +55,75 @@ contains
 
     end function dummy_select
 
+    subroutine solve_lyapunov_triangular(A, C, X, max_real_part)
+    ! Solve A X + X A^T = C, where A is upper or lower triangular.
+        integer :: n, i, info
+        external :: dtrsyl
+        real(dp), intent(in) :: A(:, :), C(:, :)
+        real(dp), intent(out) :: X(:, :), max_real_part
+        logical :: is_upper, is_lower
+        real(dp) :: scale, tol
+        real(dp), allocatable :: T(:, :)
+
+        ! 1. Check dimensions
+        n = size(A, 1)
+        if (size(A, 2) /= n) error stop "A must be square"
+        if (size(C, 1) /= n .or. size(C, 2) /= n) then
+            error stop "C has wrong shape"
+        end if
+        if (size(X, 1) /= n .or. size(X, 2) /= n) then
+            error stop "X has wrong shape"
+        end if
+
+        ! 2. Identify the triangular structure.
+        tol = 100.0_dp * epsilon(1.0_dp) * max(1.0_dp, maxval(abs(A)))
+        is_upper = is_upper_triangular(A, tol)
+        is_lower = is_lower_triangular(A, tol)
+
+        if (.not. is_upper .and. .not. is_lower) then
+            error stop "A is not triangular"
+        end if
+
+        ! 3. For triangular A, eigenvalues are its diagonal entries.
+        max_real_part = A(1, 1)
+        do i = 2, n
+            max_real_part = max(max_real_part, A(i, i))
+        end do
+
+        if (max_real_part >= 0.0_dp) then
+            print *, "max Re(lambda(A)) =", max_real_part
+            error stop "A is not Hurwitz stable"
+        end if
+
+        ! 4. DTRSYL overwrites its RHS, so X is its work array.
+        X = C
+
+        if (is_upper) then
+            ! A X + X A^T = scale * C
+            call dtrsyl('N', 'T', 1, n, n, A, n, A, n, X, n, scale, info)
+        else
+            ! T = A^T is upper triangular:
+            ! T^T X + X T = scale * C
+            allocate(T(n, n))
+            T = transpose(A)
+            call dtrsyl('T', 'N', 1, n, n, T, n, T, n, X, n, scale, info)
+        end if
+
+        if (info < 0) error stop "DTRSYL: illegal argument"
+        if (info == 1) print *, "Warning: Lyapunov equation is nearly singular."
+
+        if (scale <= tiny(1.0_dp)) then
+            error stop "DTRSYL returned an invalid scale"
+        end if
+        X = X / scale
+
+    end subroutine solve_lyapunov_triangular
+
     subroutine solve_lyapunov(A, C, X, max_real_part)
     ! solve AX + XA^T = C
         integer :: n, lwork
         integer :: info, sdim
+        external :: dgemm
         real(dp), intent(in) :: A(:, :)
         real(dp), intent(in) :: C(:, :)
         real(dp), intent(out) :: X(:, :), max_real_part
@@ -86,16 +195,18 @@ contains
         max_real_part = maxval(wr)
 
         if (max_real_part >= 0.0_dp) then
-            print *, "max Re(lambda(Q)) =", max_real_part
-            error stop "Q is not Hurwitz stable"
+            print *, "max Re(lambda(A)) =", max_real_part
+            error stop "A is not Hurwitz stable"
         end if
 
         ! -------------------------------------------------
         ! 3. F = U^T C U
         ! -------------------------------------------------
 
-        tmp = matmul(transpose(U), C)
-        F   = matmul(tmp, U)
+        call dgemm('T', 'N', n, n, n, 1.0_dp, U, n, C, n, &
+                   0.0_dp, tmp, n)
+        call dgemm('N', 'N', n, n, n, 1.0_dp, tmp, n, U, n, &
+                   0.0_dp, F, n)
 
         ! -------------------------------------------------
         ! 4. Solve
@@ -129,15 +240,17 @@ contains
         !       X = U Y U^T
         ! -------------------------------------------------
 
-        tmp = matmul(U, Y)
-        X   = matmul(tmp, transpose(U))
+        call dgemm('N', 'N', n, n, n, 1.0_dp, U, n, Y, n, &
+                   0.0_dp, tmp, n)
+        call dgemm('N', 'T', n, n, n, 1.0_dp, tmp, n, U, n, &
+                   0.0_dp, X, n)
 
     end subroutine solve_lyapunov
 
     subroutine analytic_result(Q, noise, K, tau, delta, alpha, Ktau)
         use stdlib_linalg, only : expm
         ! analytic results of delta, K, Ktau
-        integer :: n
+        integer :: n, i, j
         real(dp), intent(in) :: Q(:, :), noise(:, :), K(:, :), tau
         real(dp), allocatable, intent(out) :: delta(:, :), Ktau(:, :), alpha(:, :)
         real(dp), allocatable :: expmatrix(:,:)
@@ -146,13 +259,14 @@ contains
 
         allocate(delta(n, n), alpha(n, n), Ktau(n, n), expmatrix(n, n))
 
-        delta = matmul(Q, noise) - matmul(noise, transpose(Q))
+        do j = 1, n
+            do i = 1, n
+                delta(i, j) = Q(i, j) * noise(j, j) - &
+                      noise(i, i) * Q(j, i)
+            end do
+        end do
 
-        alpha = matmul(K, transpose(Q)) - matmul(Q, K)
-
-        ! expmatrix = expm(Q*tau)
-
-        ! Ktau = matmul(expmatrix, K)
+        alpha = -noise - 2.0_dp * matmul(Q, K)
 
     end subroutine analytic_result
 

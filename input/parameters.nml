@@ -2,12 +2,12 @@
     ! N, directed : not for FCNN
     N          = 50
     directed   = .false.
-    graph_type = "FCNN"    
+    graph_type = "EXTERNAL"    
     p          = 0.2
 /
 
 &dynamics
-    r_mean     = 1.0
+    r_mean     = 86.0
     r_std      = 0.1
     weight_mean = 1.0
     weight_std  = 0.1
