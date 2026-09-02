@@ -145,6 +145,67 @@ contains
 
     end subroutine generate_fcnn
 
+    subroutine shuffle_FCNN_weights(adj_matrix, W)
+        logical, intent(in) :: adj_matrix(:,:)
+        real(dp), intent(inout) :: W(:,:)
+
+        integer :: n, n_edges
+        integer :: i, j, k, random_index, edge_index
+        real(dp) :: temp
+        real(dp), allocatable :: edge_weights(:)
+
+        n = size(W, 1)
+
+        if (size(W, 2) /= n) then
+            error stop "W must be square"
+        end if
+
+        if (size(adj_matrix, 1) /= n .or. &
+            size(adj_matrix, 2) /= n) then
+            error stop "adj_matrix and W size mismatch"
+        end if
+
+        n_edges = count(adj_matrix)
+
+        if (n_edges <= 1) return
+
+        allocate(edge_weights(n_edges))
+
+        ! 收集所有既有 edge 的權重
+        edge_index = 0
+
+        do j = 1, n
+            do i = 1, n
+                if (adj_matrix(i, j)) then
+                    edge_index = edge_index + 1
+                    edge_weights(edge_index) = W(i, j)
+                end if
+            end do
+        end do
+
+        ! Fisher-Yates shuffle
+        do k = n_edges, 2, -1
+            random_index = 1 + int(rand_uniform() * real(k, dp))
+
+            temp = edge_weights(k)
+            edge_weights(k) = edge_weights(random_index)
+            edge_weights(random_index) = temp
+        end do
+
+        ! 將排列後的權重放回相同的 topology
+        edge_index = 0
+
+        do j = 1, n
+            do i = 1, n
+                if (adj_matrix(i, j)) then
+                    edge_index = edge_index + 1
+                    W(i, j) = edge_weights(edge_index)
+                end if
+            end do
+        end do
+
+    end subroutine shuffle_FCNN_weights
+
     subroutine read_weighted_edge_list(filename, adj_matrix, W, n_nodes)
         use, intrinsic :: iso_fortran_env, only : iostat_end
 

@@ -1,6 +1,6 @@
 &network
     ! N, directed : not for FCNN
-    N          = 50
+    N          = 1000
     directed   = .false.
     graph_type = "EXTERNAL"    
     p          = 0.2
@@ -14,7 +14,13 @@
 /
 
 &noise
-    sigma_mean = 0.01
+    sigma_mean = 1.0
+/
+
+&theory
+    verify_lyapunov = .true.
+    n_weight_shuffles = 10
+    shuffle_seed      = 1001
 /
 
 &simulation

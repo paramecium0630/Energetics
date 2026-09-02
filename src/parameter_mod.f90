@@ -22,6 +22,11 @@ module parameter_mod
         ! Noise
         real(dp) :: sigma_mean ! Mean noise strength
 
+        ! Theory and verification
+        logical :: verify_lyapunov
+        integer :: n_weight_shuffles
+        integer :: shuffle_seed
+
         ! Simulation
         logical :: run_simulation
         real(dp) :: dt ! Time step
@@ -57,6 +62,10 @@ contains
 
         real(dp) :: sigma_mean
 
+        logical :: verify_lyapunov
+        integer :: n_weight_shuffles
+        integer :: shuffle_seed
+
         real(dp) :: dt
         real(dp) :: t_relax
         real(dp) :: t_sample
@@ -69,6 +78,8 @@ contains
         namelist /dynamics/ r_mean, r_std, weight_mean, weight_std
 
         namelist /noise/ sigma_mean
+
+        namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed
 
         namelist /simulation/ run_simulation, dt, t_relax, t_sample, lag_steps, seed
 
@@ -85,6 +96,10 @@ contains
         weight_std  = 0.1_dp
 
         sigma_mean  = 0.01_dp
+
+        verify_lyapunov = .true.
+        n_weight_shuffles = 0
+        shuffle_seed = 1001
 
         run_simulation = .true.    
         dt          = 0.001_dp
@@ -129,6 +144,13 @@ contains
             stop
         end if
 
+        read(io_unit, nml=theory, iostat=io_status)
+
+        if (io_status /= 0) then
+            print *, "Error reading &theory namelist."
+            stop
+        end if
+
         read(io_unit, nml=simulation, iostat=io_status)
 
         if (io_status /= 0) then
@@ -137,6 +159,11 @@ contains
         end if
 
         close(io_unit)
+
+        ! Validate parameters
+        if (n_weight_shuffles < 0) then
+            error stop "n_weight_shuffles must be non-negative"
+        end if
 
         ! Store values into param
         param%N           = N
@@ -151,6 +178,10 @@ contains
         param%weight_std  = weight_std
 
         param%sigma_mean  = sigma_mean
+
+        param%verify_lyapunov = verify_lyapunov
+        param%n_weight_shuffles = n_weight_shuffles
+        param%shuffle_seed = shuffle_seed
 
         param%run_simulation = run_simulation
         param%dt          = dt

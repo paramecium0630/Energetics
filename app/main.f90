@@ -1,6 +1,7 @@
 
 program main
     use, intrinsic :: iso_fortran_env, only : int64
+    use shuffle_mod, only : run_shuffle_ensemble
     use precision_mod
     use parameter_mod
     use random_mod
@@ -14,13 +15,16 @@ program main
 
     integer :: i
     integer :: relax_percent, sample_percent
-    real(dp) :: cpu_program_start, cpu_program_end
-    real(dp) :: cpu_relax_start, cpu_relax_end
-    real(dp) :: cpu_sample_start, cpu_sample_end
+    integer, parameter :: max_wall_steps = 16
+    integer :: n_wall_steps
+    logical :: q_is_upper, q_is_lower
     real(dp) :: wall_program_time
-    real(dp) :: max_real_part
+    real(dp) :: max_real_part, max_lyapunov_residual
+    real(dp) :: triangular_tol
     integer(int64) :: wall_program_start, wall_program_end, wall_clock_rate
     integer(int64) :: wall_step_start
+    character(len=48) :: wall_step_labels(max_wall_steps)
+    real(dp) :: wall_step_times(max_wall_steps)
 
     integer, allocatable :: layer_sizes(:)
     integer :: nstep, n_relax, n_hidden
@@ -28,10 +32,10 @@ program main
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
     real(dp), allocatable :: x(:), y(:), force(:), Q(:, :), fixpoint(:)
     real(dp), allocatable :: mean_x(:), mean_force(:), K0(:, :), Ktau(:, :)
-    real(dp), allocatable :: K0_theory(:, :), Ktau_theory(:, :)
-    real(dp), allocatable :: alpha(:, :), alpha_sim(:, :), delta(:, :)
+    real(dp), allocatable :: K0_theory(:, :)
+    real(dp), allocatable :: alpha(:, :), alpha_sim(:, :)
 
-    real(dp), allocatable :: y_next(:), residual(:, :)
+    real(dp), allocatable :: y_next(:)
     real(dp), allocatable :: heat_rate(:), work_rate(:), entropy_rate(:), internal_rate(:)
     real(dp), allocatable :: heat_rate_theory(:), work_rate_theory(:)
     real(dp), allocatable :: internal_rate_theory(:), entropy_rate_theory(:)
@@ -43,10 +47,12 @@ program main
     call system_clock(wall_program_start, wall_clock_rate)
     if (wall_clock_rate <= 0_int64) error stop "system_clock rate is invalid"
     wall_step_start = wall_program_start
-    call cpu_time(cpu_program_start)
+    n_wall_steps = 0
+    wall_step_labels = ""
+    wall_step_times = 0.0_dp
 
     call read_parameters("input/parameters.nml", param)
-    call report_wall_step("Read parameters", wall_step_start, wall_clock_rate)
+    call record_wall_step("Read parameters", wall_step_start, wall_clock_rate)
 
     print *, "-------------------------------"
     print *, "Dynamics parameters"
@@ -77,7 +83,7 @@ program main
     endif
     ! Initialize the random number generator with the specified seed
     call initialize_seed(param%seed)
-    
+
     select case (trim(adjustl(param%graph_type)))
 
     case default
@@ -102,8 +108,8 @@ program main
       param%directed = .true.
 
     end select
-    call report_wall_step("Build/read network", wall_step_start, wall_clock_rate)
-    
+    call record_wall_step("Build/read network", wall_step_start, wall_clock_rate)
+
     print *, "-------------------------------"
     print *, "Network parameters"
     print *, "-------------------------------"
@@ -114,63 +120,70 @@ program main
     print *, "-------------------------------"
 
     call set_parameters(param, r, noise)
-    call report_wall_step("Set dynamics and noise", wall_step_start, wall_clock_rate)
+    call record_wall_step("Set dynamics and noise", wall_step_start, wall_clock_rate)
 
-    call write_node_results('output/node.csv', r, noise) 
-    call write_edge_results('output/edge.csv', W, adj_matrix)
-    call report_wall_step("Write network output", wall_step_start, wall_clock_rate)
+    call write_node_results('output/node.csv', r, noise)
+    if (trim(adjustl(param%graph_type)) /= "EXTERNAL") then
+      call write_edge_results('output/edge.csv', W, adj_matrix)
+    else
+      print *, "Skip edge.csv: network was read from an external file."
+    end if
+    call record_wall_step("Write network output", wall_step_start, wall_clock_rate)
 
     ! solve analytic covariance K0, alpha
-    allocate(K0_theory(param%N, param%N), Ktau_theory(param%N, param%N), delta(param%N, param%N))
-    allocate(alpha(param%N, param%N), alpha_sim(param%N, param%N))
+    allocate(K0_theory(param%N, param%N))
 
     allocate(fixpoint(param%N))
     fixpoint = 1.0_dp
 
     call construct_Q(r, W, Q)    
-    call report_wall_step("Allocate theory arrays and construct Q", &
+    call record_wall_step("Allocate theory arrays and construct Q", &
                           wall_step_start, wall_clock_rate)
 
-    print *, "Q is upper triangular =", &
-    is_upper_triangular(Q, 1.0e-12_dp)
+    triangular_tol = 100.0_dp * epsilon(1.0_dp) * &
+                     max(1.0_dp, maxval(abs(Q)))
+    q_is_upper = is_upper_triangular(Q, triangular_tol)
+    q_is_lower = is_lower_triangular(Q, triangular_tol)
 
-    print *, "Q is lower triangular =", &
-    is_lower_triangular(Q, 1.0e-12_dp)
+    print *, "Q is upper triangular =", q_is_upper
+    print *, "Q is lower triangular =", q_is_lower
     
     ! call write_jacobian_results('output/Q.csv', Q)
 
     ! Theory
-    if (is_upper_triangular(Q, 1.0e-12_dp)) then
+    if (q_is_upper .or. q_is_lower) then
 
-      print *, "Lyapunov solver: upper-triangular direct solver"
-      call solve_lyapunov_triangular( &
-        Q, -noise, K0_theory, max_real_part)
+      if (q_is_upper) then
+        print *, "Lyapunov solver: upper-triangular DTRSYL3 solver"
+      else
+        print *, "Lyapunov solver: lower-triangular DTRSYL3 solver"
+      end if
 
-    else if (is_lower_triangular(Q, 1.0e-12_dp)) then
-
-      print *, "Lyapunov solver: lower-triangular direct solver"
-      call solve_lyapunov_triangular( &
-        Q, -noise, K0_theory, max_real_part)
+      call solve_lyapunov_triangular_blocked( &
+        Q, -noise, K0_theory, max_real_part, &
+        q_is_upper, q_is_lower)
+      call record_wall_step("Solve Lyapunov equation (DTRSYL3)", &
+                            wall_step_start, wall_clock_rate)
 
     else
 
-      print *, "Lyapunov solver: general Schur solver"
-      call solve_lyapunov( &
+      print *, "Lyapunov solver: general Schur + DTRSYL3 solver"
+      call solve_lyapunov_blocked( &
         Q, -noise, K0_theory, max_real_part)
+      call record_wall_step("Solve Lyapunov equation (Schur + DTRSYL3)", &
+                            wall_step_start, wall_clock_rate)
 
     end if
-    call report_wall_step("Solve Lyapunov equation", &
-                          wall_step_start, wall_clock_rate)
 
-    call analytic_result(Q, noise, K0_theory, param%lag_steps*param%dt, & ! Solve delta, alpha, Ktau
-        delta, alpha, Ktau_theory)
-    call report_wall_step("Compute theory correlations", &
+    call analytic_result(Q, noise, K0_theory, alpha, &
+                         q_is_upper, q_is_lower)
+    call record_wall_step("Compute theory alpha", &
                           wall_step_start, wall_clock_rate)
 
     call compute_energetics_theory(Q, noise, alpha, &
     heat_rate_theory, work_rate_theory, &
     internal_rate_theory, entropy_rate_theory)
-    call report_wall_step("Compute theory energetics", &
+    call record_wall_step("Compute theory energetics", &
                           wall_step_start, wall_clock_rate)
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -179,11 +192,10 @@ program main
 
     nstep = int(param%t_sample / param%dt) ! no. of time steps
     n_relax = int(param%t_relax / param%dt) ! no. of burn-in steps
-  
+
     call system_clock(wall_step_start)
     call initialize_state(param%N, x, y, force)
 
-    call cpu_time(cpu_relax_start)
     ! burn-in period to reach steady state
     relax_percent = -1
     do i = 1, n_relax
@@ -191,19 +203,17 @@ program main
         call langevin_step(x, force, noise, param%dt) ! x(t+dt)
         call show_progress("Burn-in", i, n_relax, relax_percent)
     end do
-    call cpu_time(cpu_relax_end)
-    call report_wall_step("Burn-in simulation", wall_step_start, wall_clock_rate)
+    call record_wall_step("Burn-in simulation", wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
     allocate(y_next(param%N))
 
     call initialize_statistics(stat, param%lag_steps, param%N)
     call initialize_energetics(energy, Q, noise)
-    call report_wall_step("Initialize sampling statistics", &
+    call record_wall_step("Initialize sampling statistics", &
                           wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
-    call cpu_time(cpu_sample_start)
     sample_percent = -1
     ! Langevin simulation
     do i = 1, nstep
@@ -220,8 +230,7 @@ program main
         call show_progress("Sampling", i, nstep, sample_percent)
     enddo
 
-    call cpu_time(cpu_sample_end)
-    call report_wall_step("Sampling simulation", wall_step_start, wall_clock_rate)
+    call record_wall_step("Sampling simulation", wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
     call finalize_statistics(stat, fixpoint, mean_x, mean_force, K0, Ktau) ! calculate covariance, mean_x, mean_f
@@ -235,14 +244,13 @@ program main
     call write_correlation_results('output/correlation.csv', K0, Ktau)    
     call write_energetics_results('output/energetics.csv', heat_rate, work_rate, &
                          internal_rate, entropy_rate)
-    call report_wall_step("Finalize simulation and write output", &
+    call record_wall_step("Finalize simulation and write output", &
                           wall_step_start, wall_clock_rate)
 
     print *, "-------------------------------"
     print *, "Theory verification"
     print *, "-------------------------------"
     print *, "max |K0 - K0_theory| =", maxval(abs(K0 - K0_theory))
-    print *, "max |Ktau - Ktau_theory| =", maxval(abs(Ktau - Ktau_theory))
     print *, "max |x - x*| after relaxation =", maxval(abs(x - fixpoint))
     print *, "max |alpha - alpha_sim| =", maxval(abs(alpha - alpha_sim))
 
@@ -271,61 +279,81 @@ program main
     print *, "Total work rate =", &
     sum(work_rate_theory)  
 
-    end if  
-
-    ! call write_correlation_results( &
-    ! 'output/correlation_theory.csv', &
-    ! K0_theory, Ktau_theory)
+    end if
 
     call write_energetics_results( &
     'output/energetics_theory.csv', &
     heat_rate_theory, work_rate_theory, &
     internal_rate_theory, entropy_rate_theory)
-    
+
     ! call write_alpha('output/alpha.csv', alpha, alpha_sim)
 
-    print *, "-------------------------------"
-    residual = matmul(Q, K0_theory) + matmul(K0_theory,transpose(Q)) + noise
-    print *, "max |residue of Lyapunov| =", maxval(abs(residual))   
-    call report_wall_step("Post-process and write theory output", &
+    if (param%verify_lyapunov) then
+      call compute_lyapunov_residual(Q, K0_theory, noise, &
+                                     q_is_upper, q_is_lower, &
+                                     max_lyapunov_residual)
+
+      print *, "-------------------------------"
+      print *, "max |residual of Lyapunov| =", max_lyapunov_residual
+    end if
+    call record_wall_step("Post-process and write theory output", &
                           wall_step_start, wall_clock_rate)
 
-    call cpu_time(cpu_program_end)
+    if (param%n_weight_shuffles > 0) then
+
+      call run_shuffle_ensemble( &
+      adj_matrix, W, r, noise, &
+      q_is_upper, q_is_lower, &
+      param%n_weight_shuffles, &
+      param%shuffle_seed, &
+      sum(entropy_rate_theory), &
+      "output/shuffle_stability.csv", &
+      "output/shuffle_energetics.csv", &
+      "output/shuffle_summary.csv")
+
+      call record_wall_step( &
+        "Weight-shuffle ensemble", &
+        wall_step_start, wall_clock_rate)
+
+    end if
+
     call system_clock(wall_program_end)
     wall_program_time = real(wall_program_end - wall_program_start, dp) / &
                         real(wall_clock_rate, dp)
 
     print *, "-------------------------------"
-    print *, "CPU timing"
+    print *, "Wall-clock timing"
     print *, "-------------------------------"
-    if (param%run_simulation) then
-        write(*, '("Burn-in CPU time : ",f12.3," s")') &
-        cpu_relax_end - cpu_relax_start
-        write(*, '("Sampling CPU time: ",f12.3," s")') &
-        cpu_sample_end - cpu_sample_start
-    end if
-    write(*, '("Total CPU time   : ",f12.3," s")') &
-    cpu_program_end - cpu_program_start
-    write(*, '("Wall-clock time  : ",f12.3," s")') wall_program_time
+    do i = 1, n_wall_steps
+      write(*, '(2X,A,T48,F10.3," s")') &
+        trim(wall_step_labels(i)), wall_step_times(i)
+    end do
+    print *, "-------------------------------"
+    write(*, '(2X,A,T48,F10.3," s")') &
+      "Total wall-clock time", wall_program_time
 
 contains
 
-  subroutine report_wall_step(label, count_start, count_rate)
+  subroutine record_wall_step(label, count_start, count_rate)
     character(len=*), intent(in) :: label
     integer(int64), intent(inout) :: count_start
     integer(int64), intent(in) :: count_rate
 
     integer(int64) :: count_end
-    real(dp) :: elapsed
 
     call system_clock(count_end)
-    elapsed = real(count_end - count_start, dp) / real(count_rate, dp)
 
-    write(*, '("Wall-clock | ",A,": ",F10.3," s")') &
-      trim(label), elapsed
+    if (n_wall_steps >= max_wall_steps) then
+      error stop "Too many wall-clock timing records"
+    end if
+
+    n_wall_steps = n_wall_steps + 1
+    wall_step_labels(n_wall_steps) = label
+    wall_step_times(n_wall_steps) = &
+      real(count_end - count_start, dp) / real(count_rate, dp)
 
     count_start = count_end
-  end subroutine report_wall_step
+  end subroutine record_wall_step
 
   subroutine show_progress(label, current_step, total_step, last_percent)
     use, intrinsic :: iso_fortran_env, only : output_unit

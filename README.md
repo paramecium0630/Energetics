@@ -12,7 +12,6 @@
 - 在 burn-in 後累積平均狀態、平均 deterministic force、`K0` 與 `Ktau`。
 - 建構固定點附近的 Jacobian `Q`。
 - 以 real Schur decomposition 和 LAPACK `DTRSYL` 解連續 Lyapunov equation。
-- 使用 Fortran stdlib 的 `expm` 計算理論 time-lagged covariance。
 - 比較解析與模擬得到的不可逆性矩陣 `alpha`。
 - 將網路、矩陣與節點結果輸出成 CSV-like 文字檔。
 
@@ -56,15 +55,13 @@ Q(i,i) = -r(i) - sum_j W(i,j) + W(i,i).
 Q K0 + K0 Q^T = -sigma.
 ```
 
-理論 time-lagged covariance 與不可逆性矩陣定義為
+解析端的不可逆性矩陣定義為
 
 ```text
-Ktau  = exp(Q tau) K0,
-alpha = K0 Q^T - Q K0,
-delta = Q sigma - sigma Q^T.
+alpha = K0 Q^T - Q K0.
 ```
 
-模擬端使用小 `tau` 近似
+模擬端累積 time-lagged covariance `Ktau`，並使用小 `tau` 近似
 
 ```text
 alpha_sim = (Ktau^T - Ktau) / tau.
@@ -91,7 +88,7 @@ Energetics/
 │   ├── network_mod.f90       ER 網路生成
 │   ├── langevin_mod.f90      Q、nonlinear force 與 Langevin step
 │   ├── statistics_mod.f90    穩態統計量累積
-│   ├── theory_mod.f90        Lyapunov、Ktau、alpha 解析計算
+│   ├── theory_mod.f90        Lyapunov、alpha 解析計算
 │   ├── output_mod.f90        結果輸出
 │   └── energetics_mod.f90    energetics 預留介面，尚未實作
 ├── input/
@@ -108,9 +105,6 @@ Energetics/
 - [Fortran Package Manager (FPM)](https://fpm.fortran-lang.org/)
 - Intel `ifx`
 - Intel oneMKL（提供 LAPACK `DGEES`、`DTRSYL`）
-- `gcc`（FPM 建置 stdlib 中少量 C source 時使用）
-
-Fortran stdlib 由 `fpm.toml` 自動下載，不需要另外手動安裝。
 
 ## 建置
 
@@ -130,7 +124,7 @@ fpm build \
   --link-flag "-qmkl"
 ```
 
-第一次建置會編譯 stdlib，因此耗時較長；之後 FPM 只會重建修改過的 source 及其 dependents。所有 `.o`、`.mod`、library 與 executable 都會放在 `build/`，不應出現在專案根目錄。
+FPM 只會重建修改過的 source 及其 dependents。所有 `.o`、`.mod`、library 與 executable 都會放在 `build/`，不應出現在專案根目錄。
 
 較嚴格的除錯建置可使用：
 
@@ -245,7 +239,7 @@ import pandas as pd
 alpha = pd.read_csv("output/alpha.csv", skiprows=1)
 ```
 
-目前尚未把 `K0_theory`、`Ktau_theory`、`delta` 或完整 parameter summary 寫入檔案；主程式只在 terminal 顯示模擬 `K0` 與理論 `K0` 的最大絕對差。
+目前尚未把 `K0_theory` 或完整 parameter summary 寫入檔案；主程式只在 terminal 顯示模擬 `K0` 與理論 `K0` 的最大絕對差。
 
 ## 測試
 
@@ -281,7 +275,7 @@ A X + X A^T = C
 建議後續順序：
 
 1. 建立 Lyapunov unit test 與 residual test。
-2. 輸出並比較 `K0_theory`、`Ktau_theory` 和模擬矩陣。
+2. 輸出並比較 `K0_theory` 和模擬矩陣。
 3. 加入 `Q` stability check 與輸入參數檢查。
 4. 統一標準 CSV 格式與每次 run 的 metadata。
 5. 實作 stochastic heat、work、internal energy、entropy。
