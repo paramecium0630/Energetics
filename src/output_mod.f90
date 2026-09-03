@@ -4,22 +4,35 @@ module output_mod
 
 contains
 
-    subroutine write_node_results(filename, r, noise)
+    subroutine write_node_results(filename, r, noise, fixpoint, bias)
         character(len=*), intent(in) :: filename
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: noise(:, :)
+        real(dp), intent(in) :: fixpoint(:)
+        real(dp), intent(in) :: bias(:)
         integer :: i, n
         integer :: io_unit
 
         n = size(r)
 
+        if (size(noise, 1) /= n .or. size(noise, 2) /= n) then
+            error stop "r and noise size mismatch"
+        end if
+        if (size(fixpoint) /= n) then
+            error stop "r and fixpoint size mismatch"
+        end if
+        if (size(bias) /= n) then
+            error stop "r and bias size mismatch"
+        end if
+
         open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
         if (i /= 0) error stop "Error opening file for writing: "//filename
 
         write(io_unit, '(A)') "Node Results"
-        write(io_unit, '(A)') "Node Index, r, noise"
+        write(io_unit, '(A)') "Node Index, r, noise, fixpoint, bias"
         do i = 1, n
-            write(io_unit, '(*(G0,:,","))') i, r(i), noise(i,i)
+            write(io_unit, '(*(G0,:,","))') &
+                i, r(i), noise(i,i), fixpoint(i), bias(i)
         end do
 
         close(io_unit)

@@ -1,16 +1,21 @@
 &network
     ! N, directed : not for FCNN
-    N          = 1000
-    directed   = .false.
-    graph_type = "EXTERNAL"    
-    p          = 0.2
+    N          = 200
+    directed   = .true.
+    graph_type = "ER"    
+    p          = 0.1
 /
 
 &dynamics
-    r_mean     = 86.0
+    bias_file   = "input/bias.dat"
+    bias_mode   = "AUTO"
+    bias_mean   = 0.0
+    bias_std    = 0.1
+    r_mean     = 10.0
     r_std      = 0.1
     weight_mean = 1.0
     weight_std  = 0.1
+    coupling_type = "DIFFUSIVE"
 /
 
 &noise
@@ -19,15 +24,15 @@
 
 &theory
     verify_lyapunov = .true.
-    n_weight_shuffles = 10
+    n_weight_shuffles = 0
     shuffle_seed      = 1001
 /
 
 &simulation
-    run_simulation = .false.
+    run_simulation = .true.
     dt       = 0.0005
-    t_relax  = 100.0
-    t_sample = 10000.0
+    t_relax  = 0.5
+    t_sample = 100.0
     lag_steps = 1
     seed     = 1
 /

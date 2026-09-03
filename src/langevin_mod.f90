@@ -49,12 +49,15 @@ contains
 
     end subroutine initialize_state
 
-    subroutine compute_force(x, r, W, force)
+    subroutine compute_force(x, r, W, bias, coupling_type, force)
         ! Compute the deterministic force based on the current state x
         integer :: n, i, j
+        real(dp) :: source_value
         real(dp), intent(in) :: x(:)
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: W(:,:)
+        real(dp), intent(in) :: bias(:)
+        character(len=16), intent(in) :: coupling_type
         real(dp), intent(out) :: force(:)
 
         n = size(x)
@@ -64,16 +67,41 @@ contains
         if (size(W, 1) /= n .or. size(W, 2) /= n) then
             error stop "x and W size mismatch"
         end if
+        if (size(bias) /= n) then
+            error stop "x and bias size mismatch"
+        end if
 
-        force = r * x * (1.0_dp - x)
-        ! force = -r * x
+        force = -r * x + bias ! force = -r * x + bias
 
-        do i = 1, n
+        select case (trim(adjustl(coupling_type)))
+
+        case ("DIFFUSIVE")
+
+            ! sum_j W(i,j) * (x(j) - x(i))
             do j = 1, n
-                force(i) = force(i) + W(i, j) * (x(j) - x(i))
-                ! force(i) = force(i) + W(i, j) * x(j)
+                do i = 1, n
+                    force(i) = force(i) + &
+                    W(i, j) * (x(j) - x(i))
+                end do
             end do
-        end do
+
+        case ("TANH")
+
+            ! sum_j W(i,j) * tanh(x(j))
+            do j = 1, n
+                source_value = tanh(x(j))
+                do i = 1, n
+                    force(i) = force(i) + &
+                    W(i, j) * source_value
+                end do
+            end do
+
+        case default
+
+            error stop "Unsupported coupling type: " // &
+            trim(coupling_type)
+
+        end select
 
     end subroutine compute_force
 

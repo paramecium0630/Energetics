@@ -28,12 +28,20 @@ program main
 
     integer, allocatable :: layer_sizes(:)
     integer :: nstep, n_relax, n_hidden
+    real(dp) :: max_fixedpoint_residual, max_force_at_fixedpoint
     logical, allocatable :: adj_matrix(:,:)
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
     real(dp), allocatable :: x(:), y(:), force(:), Q(:, :), fixpoint(:)
+    
+    real(dp), allocatable :: force_at_fixedpoint(:)
     real(dp), allocatable :: mean_x(:), mean_force(:), K0(:, :), Ktau(:, :)
     real(dp), allocatable :: K0_theory(:, :)
     real(dp), allocatable :: alpha(:, :), alpha_sim(:, :)
+    
+    integer :: n_bias
+    character(len=16) :: resolved_bias_mode
+    integer, allocatable :: bias_layer(:)
+    real(dp), allocatable :: bias(:)
 
     real(dp), allocatable :: y_next(:)
     real(dp), allocatable :: heat_rate(:), work_rate(:), entropy_rate(:), internal_rate(:)
@@ -62,6 +70,7 @@ program main
     print *, "r std       = ", param%r_std
     print *, "weight mean = ", param%weight_mean
     print *, "weight std  = ", param%weight_std
+    print *, "coupling type = ", trim(param%coupling_type)
 
     print *, "-------------------------------"
     print *, "Noise parameters"
@@ -120,23 +129,38 @@ program main
     print *, "-------------------------------"
 
     call set_parameters(param, r, noise)
-    call record_wall_step("Set dynamics and noise", wall_step_start, wall_clock_rate)
+    
+    call initialize_bias( &
+      param, bias, bias_layer, n_bias, resolved_bias_mode)
 
-    call write_node_results('output/node.csv', r, noise)
-    if (trim(adjustl(param%graph_type)) /= "EXTERNAL") then
-      call write_edge_results('output/edge.csv', W, adj_matrix)
-    else
-      print *, "Skip edge.csv: network was read from an external file."
-    end if
-    call record_wall_step("Write network output", wall_step_start, wall_clock_rate)
+    print *, "-------------------------------"
+    print *, "Bias parameters"
+    print *, "-------------------------------"
+    print *, "Bias mode =", trim(resolved_bias_mode)
+    print *, "Number of biases =", n_bias
+
+    select case (trim(resolved_bias_mode))
+    case ("RANDOM")
+      print *, "Bias mean =", param%bias_mean
+      print *, "Bias std  =", param%bias_std
+    case ("FILE")
+      print *, "Bias file =", trim(param%bias_file)
+      print *, "No-bias nodes =", count(bias_layer == 0)
+      print *, "Layer 1 count =", count(bias_layer == 1)
+      print *, "Layer 2 count =", count(bias_layer == 2)
+      print *, "Layer 3 count =", count(bias_layer == 3)
+    end select
+    print *, "-------------------------------"
+
+    call record_wall_step("Set dynamics, noise, and bias", wall_step_start, wall_clock_rate)
 
     ! solve analytic covariance K0, alpha
     allocate(K0_theory(param%N, param%N))
 
     allocate(fixpoint(param%N))
-    fixpoint = 1.0_dp
 
     call construct_Q(r, W, Q)    
+
     call record_wall_step("Allocate theory arrays and construct Q", &
                           wall_step_start, wall_clock_rate)
 
@@ -147,8 +171,50 @@ program main
 
     print *, "Q is upper triangular =", q_is_upper
     print *, "Q is lower triangular =", q_is_lower
-    
-    ! call write_jacobian_results('output/Q.csv', Q)
+
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+
+    call solve_fixed_point_linear( &
+        Q, bias, &
+        q_is_upper, q_is_lower, &
+        fixpoint)
+
+    else
+
+      error stop "TANH fixed-point solver is not implemented yet"
+
+    end if
+
+    max_fixedpoint_residual = &
+    maxval(abs(matmul(Q, fixpoint) + bias))
+
+    allocate(force_at_fixedpoint(param%N))
+
+    call compute_force( &
+    fixpoint, r, W, bias, &
+    param%coupling_type, &
+    force_at_fixedpoint)
+
+    max_force_at_fixedpoint = &
+    maxval(abs(force_at_fixedpoint))   
+
+    print *, "-------------------------------"
+    print *, "Fixed-point verification"
+    print *, "-------------------------------"
+    print *, "max |Q*x* + bias| =", &
+    max_fixedpoint_residual    
+     print *, "max |F(x*)| =", max_force_at_fixedpoint
+
+    call write_node_results( &
+      'output/node.csv', r, noise, fixpoint, bias)
+
+    if (trim(adjustl(param%graph_type)) /= "EXTERNAL") then
+      call write_edge_results('output/edge.csv', W, adj_matrix)
+    else
+      print *, "Skip edge.csv: network was read from an external file."
+    end if
+
+    call record_wall_step("Write network output", wall_step_start, wall_clock_rate)
 
     ! Theory
     if (q_is_upper .or. q_is_lower) then
@@ -199,7 +265,7 @@ program main
     ! burn-in period to reach steady state
     relax_percent = -1
     do i = 1, n_relax
-        call compute_force(x, r, W, force) ! x(t), f(t)
+        call compute_force(x, r, W, bias, param%coupling_type, force) ! x(t), f(t)
         call langevin_step(x, force, noise, param%dt) ! x(t+dt)
         call show_progress("Burn-in", i, n_relax, relax_percent)
     end do
@@ -217,7 +283,7 @@ program main
     sample_percent = -1
     ! Langevin simulation
     do i = 1, nstep
-        call compute_force(x, r, W, force)
+        call compute_force(x, r, W, bias, param%coupling_type, force)
         y = x - fixpoint ! y = x - 1, y(t)
         ! statistics 使用 t 時刻的 y 與 nonlinear force
         call update_statistics(stat, y, force) ! x(t), f(t)
@@ -251,9 +317,9 @@ program main
     print *, "Theory verification"
     print *, "-------------------------------"
     print *, "max |K0 - K0_theory| =", maxval(abs(K0 - K0_theory))
-    print *, "max |x - x*| after relaxation =", maxval(abs(x - fixpoint))
+    print *, "max |<x> - x*| =", maxval(abs(mean_x - fixpoint))
     print *, "max |alpha - alpha_sim| =", maxval(abs(alpha - alpha_sim))
-
+    print *, "max |<F>| =", maxval(abs(mean_force))
     print *, "-------------------------------"
     print *, "Energetics (Simulation and Theory)"
     print *, "-------------------------------"

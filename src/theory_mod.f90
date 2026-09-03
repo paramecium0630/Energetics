@@ -445,6 +445,91 @@ contains
 
     end subroutine solve_lyapunov_blocked
 
+    subroutine solve_fixed_point_linear( &
+    Q, bias, is_upper, is_lower, fixpoint)
+
+    real(dp), intent(in) :: Q(:, :)
+    real(dp), intent(in) :: bias(:)
+    logical, intent(in) :: is_upper
+    logical, intent(in) :: is_lower
+    real(dp), intent(out) :: fixpoint(:)
+
+    integer :: n
+    integer :: i
+    integer :: info
+
+    integer, allocatable :: ipiv(:)
+    real(dp), allocatable :: Q_work(:, :)
+
+    real(dp) :: diagonal_tol
+
+    external :: dtrsv
+    external :: dgesv
+
+    n = size(bias)
+
+    if (size(Q, 1) /= n .or. size(Q, 2) /= n) then
+        error stop "Q and bias size mismatch"
+    end if
+
+    if (size(fixpoint) /= n) then
+        error stop "Incorrect fixed-point size"
+    end if
+
+    ! Right-hand side of Q x* = -bias
+    fixpoint = -bias
+
+    if (is_upper .or. is_lower) then
+
+        diagonal_tol = 100.0_dp * epsilon(1.0_dp) * &
+            max(1.0_dp, maxval(abs(Q)))
+
+        do i = 1, n
+            if (abs(Q(i, i)) <= diagonal_tol) then
+                error stop "Triangular Q is singular"
+            end if
+        end do
+
+        if (is_upper) then
+
+            ! Solve Q x* = -bias for upper-triangular Q
+            call dtrsv( &
+                "U", "N", "N", &
+                n, Q, n, fixpoint, 1)
+
+        else
+
+            ! Solve Q x* = -bias for lower-triangular Q
+            call dtrsv( &
+                "L", "N", "N", &
+                n, Q, n, fixpoint, 1)
+
+        end if
+
+    else
+
+        ! DGESV overwrites its matrix argument
+        allocate(Q_work(n, n))
+        allocate(ipiv(n))
+
+        Q_work = Q
+
+        call dgesv( &
+            n, 1, Q_work, n, &
+            ipiv, fixpoint, n, info)
+
+        if (info < 0) then
+            error stop "DGESV received an invalid argument"
+        end if
+
+        if (info > 0) then
+            error stop "Q is singular; fixed point is not unique"
+        end if
+
+    end if
+
+    end subroutine solve_fixed_point_linear 
+
     subroutine compute_lyapunov_residual(Q, K, noise, q_is_upper, &
                                          q_is_lower, max_residual)
         ! Compute max|Q K + K Q^T + noise|.
