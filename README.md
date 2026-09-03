@@ -30,16 +30,16 @@ dx_i = [r_i x_i (1 - x_i) + sum_j W_ij (x_j - x_i)] dt
 W(i,j) 表示由節點 j 指向節點 i 的連結，即 j -> i。
 ```
 
-在 deterministic fixed point `x_i = 1` 附近定義
+在 deterministic fixed point `x*` 附近定義
 
 ```text
-y = x - 1.
+delta_x = x - x*.
 ```
 
 線性化動力學為
 
 ```text
-dy/dt = Q y + eta,
+d(delta_x)/dt = Q delta_x + eta,
 ```
 
 其中
@@ -70,10 +70,10 @@ alpha_sim = (Ktau^T - Ktau) / tau.
 目前 `statistics_mod` 輸出的 `K0` 是 raw second moment
 
 ```text
-K0 = <y y^T>,
+K0 = <delta_x delta_x^T>,
 ```
 
-尚未扣除 `<y><y>^T`。若穩態平均不為零，它不完全等同於 central covariance。
+尚未扣除 `<delta_x><delta_x>^T`。若穩態平均不為零，它不完全等同於 central covariance。
 
 ## 專案結構
 

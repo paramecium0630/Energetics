@@ -16,8 +16,8 @@ module energetics_mod
         real(dp), allocatable :: sum_internal(:)
 
         ! Reusable workspace for each sampling step
-        real(dp), allocatable :: dy(:)
-        real(dp), allocatable :: y_mid(:)
+        real(dp), allocatable :: d_delta_x(:)
+        real(dp), allocatable :: delta_x_mid(:)
         real(dp), allocatable :: force_c(:)
         real(dp), allocatable :: force_nc(:)
 
@@ -42,8 +42,8 @@ contains
         allocate(energy%sum_work(n))
         allocate(energy%sum_internal(n))
 
-        allocate(energy%dy(n))
-        allocate(energy%y_mid(n))
+        allocate(energy%d_delta_x(n))
+        allocate(energy%delta_x_mid(n))
         allocate(energy%force_c(n))
         allocate(energy%force_nc(n))
 
@@ -69,8 +69,8 @@ contains
         energy%sum_heat     = 0.0_dp
         energy%sum_work     = 0.0_dp
         energy%sum_internal = 0.0_dp
-        energy%dy           = 0.0_dp
-        energy%y_mid        = 0.0_dp
+        energy%d_delta_x    = 0.0_dp
+        energy%delta_x_mid  = 0.0_dp
         energy%force_c      = 0.0_dp
         energy%force_nc     = 0.0_dp
         energy%n_step       = 0
@@ -78,40 +78,39 @@ contains
 
     end subroutine initialize_energetics
 
-    subroutine update_energetics_linear(energy, y_old, y_new, dt)
+    subroutine update_energetics_linear(energy, delta_x_old, delta_x_new, dt)
         type(EnergeticsState), intent(inout) :: energy
         integer :: n, i
-        real(dp), intent(in) :: y_old(:), y_new(:)
+        real(dp), intent(in) :: delta_x_old(:), delta_x_new(:)
         real(dp), intent(in) :: dt
 
-        n = size(y_old)
+        n = size(delta_x_old)
 
-        if (size(y_new) /= n) then
-            error stop "y_old and y_new size mismatch"
+        if (size(delta_x_new) /= n) then
+            error stop "delta_x_old and delta_x_new size mismatch"
         end if
-        if (.not. allocated(energy%dy)) then
+        if (.not. allocated(energy%d_delta_x)) then
             error stop "Energetics workspace is not initialized"
         end if
-        if (size(energy%dy) /= n) then
+        if (size(energy%d_delta_x) /= n) then
             error stop "Energetics workspace size mismatch"
         end if
         if (dt <= 0.0_dp) error stop "dt must be positive"
 
-        ! dx(t)
-        energy%dy    = y_new - y_old
-        energy%y_mid = 0.5_dp * (y_old + y_new)
+        energy%d_delta_x   = delta_x_new - delta_x_old
+        energy%delta_x_mid = 0.5_dp * (delta_x_old + delta_x_new)
 
         ! conservative and nonconservative force
-        energy%force_c  = matmul(energy%S, energy%y_mid)
-        energy%force_nc = matmul(energy%A, energy%y_mid)
+        energy%force_c  = matmul(energy%S, energy%delta_x_mid)
+        energy%force_nc = matmul(energy%A, energy%delta_x_mid)
 
         do i = 1, n
             energy%sum_heat(i) = energy%sum_heat(i) - &
-                (energy%force_c(i) + energy%force_nc(i)) * energy%dy(i)
+                (energy%force_c(i) + energy%force_nc(i)) * energy%d_delta_x(i)
             energy%sum_work(i) = energy%sum_work(i) - &
-                energy%force_nc(i) * energy%dy(i)
+                energy%force_nc(i) * energy%d_delta_x(i)
             energy%sum_internal(i) = energy%sum_internal(i) - &
-                energy%force_c(i) * energy%dy(i)
+                energy%force_c(i) * energy%d_delta_x(i)
         end do
 
         energy%n_step       = energy%n_step + 1
@@ -140,8 +139,8 @@ contains
         if (allocated(energy%sum_heat)) deallocate(energy%sum_heat)
         if (allocated(energy%sum_work)) deallocate(energy%sum_work)
         if (allocated(energy%sum_internal)) deallocate(energy%sum_internal)
-        if (allocated(energy%dy)) deallocate(energy%dy)
-        if (allocated(energy%y_mid)) deallocate(energy%y_mid)
+        if (allocated(energy%d_delta_x)) deallocate(energy%d_delta_x)
+        if (allocated(energy%delta_x_mid)) deallocate(energy%delta_x_mid)
         if (allocated(energy%force_c)) deallocate(energy%force_c)
         if (allocated(energy%force_nc)) deallocate(energy%force_nc)
 

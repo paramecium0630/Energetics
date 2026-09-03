@@ -31,7 +31,7 @@ program main
     real(dp) :: max_fixedpoint_residual, max_force_at_fixedpoint
     logical, allocatable :: adj_matrix(:,:)
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
-    real(dp), allocatable :: x(:), y(:), force(:), Q(:, :), fixpoint(:)
+    real(dp), allocatable :: x(:), delta_x(:), force(:), Q(:, :), fixpoint(:)
     
     real(dp), allocatable :: force_at_fixedpoint(:)
     real(dp), allocatable :: mean_x(:), mean_force(:), K0(:, :), Ktau(:, :)
@@ -43,7 +43,7 @@ program main
     integer, allocatable :: bias_layer(:)
     real(dp), allocatable :: bias(:)
 
-    real(dp), allocatable :: y_next(:)
+    real(dp), allocatable :: delta_x_next(:)
     real(dp), allocatable :: heat_rate(:), work_rate(:), entropy_rate(:), internal_rate(:)
     real(dp), allocatable :: heat_rate_theory(:), work_rate_theory(:)
     real(dp), allocatable :: internal_rate_theory(:), entropy_rate_theory(:)
@@ -260,7 +260,7 @@ program main
     n_relax = int(param%t_relax / param%dt) ! no. of burn-in steps
 
     call system_clock(wall_step_start)
-    call initialize_state(param%N, x, y, force)
+    call initialize_state(param%N, x, delta_x, force)
 
     ! burn-in period to reach steady state
     relax_percent = -1
@@ -272,7 +272,7 @@ program main
     call record_wall_step("Burn-in simulation", wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
-    allocate(y_next(param%N))
+    allocate(delta_x_next(param%N))
 
     call initialize_statistics(stat, param%lag_steps, param%N)
     call initialize_energetics(energy, Q, noise)
@@ -284,15 +284,15 @@ program main
     ! Langevin simulation
     do i = 1, nstep
         call compute_force(x, r, W, bias, param%coupling_type, force)
-        y = x - fixpoint ! y = x - 1, y(t)
-        ! statistics 使用 t 時刻的 y 與 nonlinear force
-        call update_statistics(stat, y, force) ! x(t), f(t)
+        delta_x = x - fixpoint ! delta_x(t) = x(t) - x*
+        ! statistics 使用 t 時刻的 delta_x 與 deterministic force
+        call update_statistics(stat, delta_x, force) ! delta_x(t), f(t)
         ! x(t) -> x(t+dt)
         call langevin_step(x, force, noise, param%dt)
         ! t+dt 時刻
-        y_next = x - fixpoint ! y(t+dt)
+        delta_x_next = x - fixpoint ! delta_x(t+dt)
         ! Stratonovich midpoint energetics
-        call update_energetics_linear(energy, y, y_next, param%dt) ! y(t+dt) - y(t)
+        call update_energetics_linear(energy, delta_x, delta_x_next, param%dt)
         call show_progress("Sampling", i, nstep, sample_percent)
     enddo
 

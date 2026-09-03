@@ -8,7 +8,7 @@ contains
 
     subroutine construct_Q(r, W, Q)
         ! Construct the Q matrix for the simulation
-        ! Coupling function h(x,y) = y - x
+        ! Diffusive coupling between target and source states
         ! The Q matrix is defined as:
         ! Q_ij = W_ij for i ≠ j
         ! Q_ii = -r_i - sum_j W_ij
@@ -33,18 +33,18 @@ contains
         end do
     end subroutine construct_Q
 
-    subroutine initialize_state(n, x, y, force)
+    subroutine initialize_state(n, x, delta_x, force)
         integer, intent(in) :: n
-        real(dp), allocatable, intent(out) :: x(:), y(:), force(:)
+        real(dp), allocatable, intent(out) :: x(:), delta_x(:), force(:)
         ! Initialize the state vector x with random values
 
         if (n <= 0) error stop "State size must be positive"
 
-        allocate(x(n), y(n), force(n))
+        allocate(x(n), delta_x(n), force(n))
         
         x = 1.0_dp
         ! x = 0.0_dp
-        y = 0.0_dp
+        delta_x = 0.0_dp
         force = 0.0_dp
 
     end subroutine initialize_state
