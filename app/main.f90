@@ -16,6 +16,8 @@ program main
     integer :: i
     integer :: relax_percent, sample_percent
     integer, parameter :: max_wall_steps = 16
+    integer, parameter :: fixedpoint_max_iterations = 100
+    real(dp), parameter :: fixedpoint_tolerance = 1.0e-10_dp
     integer :: n_wall_steps
     logical :: q_is_upper, q_is_lower
     real(dp) :: wall_program_time
@@ -132,8 +134,7 @@ program main
     
     call initialize_bias( &
       param, bias, bias_layer, n_bias, resolved_bias_mode)
-
-    print *, "-------------------------------"
+    
     print *, "Bias parameters"
     print *, "-------------------------------"
     print *, "Bias mode =", trim(resolved_bias_mode)
@@ -159,10 +160,27 @@ program main
 
     allocate(fixpoint(param%N))
 
-    call construct_Q(r, W, Q)    
+    select case (trim(adjustl(param%coupling_type)))
 
-    call record_wall_step("Allocate theory arrays and construct Q", &
-                          wall_step_start, wall_clock_rate)
+    case ("DIFFUSIVE")
+
+      call construct_Q(r, W, param%coupling_type, Q)
+
+    case ("TANH")
+
+      call solve_fixed_point_tanh( &
+        r, W, bias, fixpoint, &
+        fixedpoint_tolerance, fixedpoint_max_iterations)
+
+      call construct_Q( &
+        r, W, param%coupling_type, Q, fixpoint)
+
+    case default
+
+      error stop "Unsupported coupling type: " // &
+                 trim(param%coupling_type)
+
+    end select
 
     triangular_tol = 100.0_dp * epsilon(1.0_dp) * &
                      max(1.0_dp, maxval(abs(Q)))
@@ -174,19 +192,15 @@ program main
 
     if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
 
-    call solve_fixed_point_linear( &
+      call solve_fixed_point_linear( &
         Q, bias, &
         q_is_upper, q_is_lower, &
         fixpoint)
 
-    else
-
-      error stop "TANH fixed-point solver is not implemented yet"
-
     end if
 
-    max_fixedpoint_residual = &
-    maxval(abs(matmul(Q, fixpoint) + bias))
+    call record_wall_step("Construct Q and solve fixed point", &
+                          wall_step_start, wall_clock_rate)
 
     allocate(force_at_fixedpoint(param%N))
 
@@ -198,12 +212,20 @@ program main
     max_force_at_fixedpoint = &
     maxval(abs(force_at_fixedpoint))   
 
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+      max_fixedpoint_residual = &
+        maxval(abs(matmul(Q, fixpoint) + bias))
+    else
+      max_fixedpoint_residual = max_force_at_fixedpoint
+    end if
+
     print *, "-------------------------------"
     print *, "Fixed-point verification"
     print *, "-------------------------------"
-    print *, "max |Q*x* + bias| =", &
-    max_fixedpoint_residual    
-     print *, "max |F(x*)| =", max_force_at_fixedpoint
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+      print *, "max |Q*x* + bias| =", max_fixedpoint_residual
+    end if
+    print *, "max |F(x*)| =", max_force_at_fixedpoint
 
     call write_node_results( &
       'output/node.csv', r, noise, fixpoint, bias)
@@ -307,7 +329,8 @@ program main
     call simulate_alpha(Ktau, param%lag_steps*param%dt, alpha_sim) ! alpha = (K_tau.T - K_tau) / tau
 
     call write_mean_results('output/mean.csv', mean_x, mean_force)   
-    call write_correlation_results('output/correlation.csv', K0, Ktau)    
+    call write_correlation_results( &
+      'output/correlation.csv', K0, Ktau, K0_theory)
     call write_energetics_results('output/energetics.csv', heat_rate, work_rate, &
                          internal_rate, entropy_rate)
     call record_wall_step("Finalize simulation and write output", &
@@ -366,6 +389,10 @@ program main
                           wall_step_start, wall_clock_rate)
 
     if (param%n_weight_shuffles > 0) then
+
+      if (trim(adjustl(param%coupling_type)) /= "DIFFUSIVE") then
+        error stop "Weight shuffling currently supports DIFFUSIVE coupling only"
+      end if
 
       call run_shuffle_ensemble( &
       adj_matrix, W, r, noise, &

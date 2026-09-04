@@ -1,18 +1,24 @@
 program check
     use precision_mod
-    use parameter_mod, only : read_node_bias
+    use parameter_mod, only : SimulationParameters, initialize_bias
     implicit none
 
+    type(SimulationParameters) :: param
     integer :: n_bias
     integer, allocatable :: bias_layer(:)
     real(dp), allocatable :: bias(:)
+    character(len=16) :: resolved_mode
 
-    call read_node_bias( &
-        "input/bias.dat", &
-        1306, &
-        bias, &
-        bias_layer, &
-        n_bias)
+    param%N = 1306
+    param%graph_type = "EXTERNAL"
+    param%bias_mode = "AUTO"
+    param%bias_file = "input/mnistx2/bias.dat"
+
+    call initialize_bias(param, bias, bias_layer, n_bias, resolved_mode)
+
+    if (trim(resolved_mode) /= "FILE") then
+        error stop "AUTO did not select FILE for an external network"
+    end if
 
     if (size(bias) /= 1306) then
         error stop "Incorrect bias-array size"

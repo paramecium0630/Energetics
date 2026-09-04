@@ -1,6 +1,9 @@
 module theory_mod
     use precision_mod
+    use langevin_mod, only : compute_force, construct_Q
     implicit none
+
+    private :: compute_force, construct_Q
 
 contains
 
@@ -529,6 +532,194 @@ contains
     end if
 
     end subroutine solve_fixed_point_linear 
+
+    subroutine solve_fixed_point_tanh( &
+    r, W, bias, fixpoint, tolerance, max_iterations)
+
+    real(dp), intent(in) :: r(:)
+    real(dp), intent(in) :: W(:, :)
+    real(dp), intent(in) :: bias(:)
+    real(dp), intent(out) :: fixpoint(:)
+    real(dp), intent(in) :: tolerance
+    integer, intent(in) :: max_iterations
+
+    integer, parameter :: max_backtracks = 25
+
+    integer :: n
+    integer :: i
+    integer :: iteration
+    integer :: backtrack
+    integer :: info
+    integer, allocatable :: ipiv(:)
+
+    real(dp), allocatable :: force(:)
+    real(dp), allocatable :: force_trial(:)
+    real(dp), allocatable :: correction(:)
+    real(dp), allocatable :: trial_state(:)
+    real(dp), allocatable :: jacobian_work(:, :)
+
+    real(dp) :: residual
+    real(dp) :: trial_residual
+    real(dp) :: damping
+    real(dp) :: r_scale
+    real(dp) :: small_r
+    real(dp) :: jacobian_tolerance
+    logical :: accepted
+    logical :: jacobian_is_upper
+    logical :: jacobian_is_lower
+
+    external :: dgesv
+    external :: dtrsv
+
+    n = size(r)
+
+    if (n <= 0) then
+        error stop "TANH fixed-point size must be positive"
+    end if
+
+    if (size(W, 1) /= n .or. size(W, 2) /= n) then
+        error stop "r and W size mismatch"
+    end if
+
+    if (size(bias) /= n) then
+        error stop "r and bias size mismatch"
+    end if
+
+    if (size(fixpoint) /= n) then
+        error stop "Incorrect TANH fixed-point size"
+    end if
+
+    if (tolerance <= 0.0_dp) then
+        error stop "Fixed-point tolerance must be positive"
+    end if
+
+    if (max_iterations <= 0) then
+        error stop "max_iterations must be positive"
+    end if
+
+    allocate(force(n))
+    allocate(force_trial(n))
+    allocate(correction(n))
+    allocate(trial_state(n))
+    allocate(ipiv(n))
+
+    ! The uncoupled solution is a useful initial guess.
+    r_scale = max(1.0_dp, maxval(abs(r)))
+    small_r = 100.0_dp * epsilon(1.0_dp) * r_scale
+
+    do i = 1, n
+        if (abs(r(i)) > small_r) then
+            fixpoint(i) = bias(i) / r(i)
+        else
+            fixpoint(i) = 0.0_dp
+        end if
+    end do
+
+    do iteration = 1, max_iterations
+
+        call compute_force( &
+            fixpoint, r, W, bias, "TANH", force)
+
+        residual = maxval(abs(force))
+
+        if (residual <= tolerance) return
+
+        ! Newton equation: J(x) * correction = -F(x).
+        call construct_Q( &
+            r, W, "TANH", jacobian_work, fixpoint)
+
+        correction = -force
+
+        jacobian_tolerance = 100.0_dp * epsilon(1.0_dp) * &
+            max(1.0_dp, maxval(abs(jacobian_work)))
+        jacobian_is_upper = is_upper_triangular( &
+            jacobian_work, jacobian_tolerance)
+        jacobian_is_lower = is_lower_triangular( &
+            jacobian_work, jacobian_tolerance)
+
+        if (jacobian_is_upper .or. jacobian_is_lower) then
+
+            do i = 1, n
+                if (abs(jacobian_work(i, i)) <= &
+                    jacobian_tolerance) then
+                    error stop "TANH Newton Jacobian is singular"
+                end if
+            end do
+
+            if (jacobian_is_upper) then
+                call dtrsv( &
+                    "U", "N", "N", n, jacobian_work, n, &
+                    correction, 1)
+            else
+                call dtrsv( &
+                    "L", "N", "N", n, jacobian_work, n, &
+                    correction, 1)
+            end if
+
+        else
+
+            ! DGESV overwrites both jacobian_work and correction.
+            call dgesv( &
+                n, 1, jacobian_work, n, ipiv, &
+                correction, n, info)
+
+            if (info < 0) then
+                error stop &
+                    "DGESV received an invalid argument in TANH solver"
+            end if
+
+            if (info > 0) then
+                error stop "TANH Newton Jacobian is singular"
+            end if
+
+        end if
+
+        ! Backtracking accepts only a step that reduces max|F|.
+        damping = 1.0_dp
+        accepted = .false.
+
+        do backtrack = 0, max_backtracks
+            trial_state = fixpoint + damping * correction
+
+            call compute_force( &
+                trial_state, r, W, bias, "TANH", force_trial)
+
+            trial_residual = maxval(abs(force_trial))
+
+            if (trial_residual < residual) then
+                accepted = .true.
+                exit
+            end if
+
+            damping = 0.5_dp * damping
+        end do
+
+        if (.not. accepted) then
+            write(*, '(A,I0)') &
+                "TANH Newton iteration = ", iteration
+            write(*, '(A,ES14.6)') &
+                "Current residual = ", residual
+            error stop "TANH Newton backtracking failed"
+        end if
+
+        fixpoint = trial_state
+
+    end do
+
+    call compute_force( &
+        fixpoint, r, W, bias, "TANH", force)
+
+    residual = maxval(abs(force))
+
+    write(*, '(A,I0)') &
+        "Maximum TANH Newton iterations = ", max_iterations
+    write(*, '(A,ES14.6)') &
+        "Final TANH fixed-point residual = ", residual
+
+    error stop "TANH fixed-point solver did not converge"
+
+
+    end subroutine solve_fixed_point_tanh
 
     subroutine compute_lyapunov_residual(Q, K, noise, q_is_upper, &
                                          q_is_lower, max_residual)

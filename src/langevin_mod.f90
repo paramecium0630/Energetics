@@ -6,31 +6,64 @@ module langevin_mod
 
 contains
 
-    subroutine construct_Q(r, W, Q)
-        ! Construct the Q matrix for the simulation
-        ! Diffusive coupling between target and source states
-        ! The Q matrix is defined as:
-        ! Q_ij = W_ij for i ≠ j
-        ! Q_ii = -r_i - sum_j W_ij
-        integer :: i, n
+    subroutine construct_Q(r, W, coupling_type, Q, linearization_state)
+        ! Construct the linear dynamics matrix/Jacobian.
+        integer :: i, j, n
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: W(:,:)
+        character(len=*), intent(in) :: coupling_type
         real(dp), allocatable, intent(out) :: Q(:,:)
+        real(dp), intent(in), optional :: linearization_state(:)
 
         n = size(r)
 
+        if (n <= 0) error stop "Q size must be positive"
+
         if (size(W, 1) /= n .or. size(W, 2) /= n) then
-            error stop "Dimension mismatch between r and W" ! 
+            error stop "Dimension mismatch between r and W"
         end if
 
         allocate(Q(n, n))
 
-        ! Initialize Q with W and set diagonal elements
-        Q = W ! Q_ij = W_ij for i ≠ j
-        do i = 1, n
-            Q(i, i) = -r(i) - sum(W(i, :)) + W(i, i) ! Q_ii = -r_i - sum_j W_ij
-            ! Q(i, i) = -r(i)
-        end do
+        select case (trim(adjustl(coupling_type)))
+
+        case ("DIFFUSIVE")
+
+            ! F_i = -r_i*x_i + b_i + sum_j W_ij*(x_j-x_i)
+            Q = W
+
+            do i = 1, n
+                Q(i, i) = -r(i) - sum(W(i, :)) + W(i, i)
+            end do
+
+        case ("TANH")
+
+            if (.not. present(linearization_state)) then
+                error stop "TANH Jacobian requires a linearization state"
+            end if
+
+            if (size(linearization_state) /= n) then
+                error stop "Incorrect TANH linearization-state size"
+            end if
+
+            ! F_i = -r_i*x_i + b_i + sum_j W_ij*tanh(x_j)
+            ! dF_i/dx_j = W_ij*(1-tanh(x_j)**2) - r_i*delta_ij
+            do j = 1, n
+                Q(:, j) = W(:, j) * &
+                    (1.0_dp - tanh(linearization_state(j))**2)
+            end do
+
+            do i = 1, n
+                Q(i, i) = Q(i, i) - r(i)
+            end do
+
+        case default
+
+            error stop "Unsupported coupling type: " // &
+                       trim(coupling_type)
+
+        end select
+
     end subroutine construct_Q
 
     subroutine initialize_state(n, x, delta_x, force)
@@ -57,7 +90,7 @@ contains
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: W(:,:)
         real(dp), intent(in) :: bias(:)
-        character(len=16), intent(in) :: coupling_type
+        character(len=*), intent(in) :: coupling_type
         real(dp), intent(out) :: force(:)
 
         n = size(x)

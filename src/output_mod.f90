@@ -105,22 +105,31 @@ contains
         close(io_unit)
     end subroutine write_mean_results
 
-    subroutine write_correlation_results(filename, K0, Ktau)
+    subroutine write_correlation_results(filename, K0, Ktau, K0_theory)
         character(len=*), intent(in) :: filename
-        real(dp), intent(in) :: K0(:, :), Ktau(:, :)
+        real(dp), intent(in) :: K0(:, :), Ktau(:, :), K0_theory(:, :)
         integer :: i, j, n
         integer :: io_unit
 
         n = size(K0, 1)
+
+        if (size(K0, 2) /= n) error stop "K0 must be square"
+        if (size(Ktau, 1) /= n .or. size(Ktau, 2) /= n) then
+            error stop "K0 and Ktau size mismatch"
+        end if
+        if (size(K0_theory, 1) /= n .or. size(K0_theory, 2) /= n) then
+            error stop "K0 and K0_theory size mismatch"
+        end if
         
         open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
         if (i /= 0) error stop "Error opening file for writing: "//filename
 
         write(io_unit, '(A)') "Correlation Results"
-        write(io_unit, '(A)') "target, source, K0, Ktau"
+        write(io_unit, '(A)') "target, source, K0, Ktau, K0_theory"
         do i = 1, n
             do j = 1, n
-                write(io_unit, '(*(G0,:,","))') i, j, K0(i,j), Ktau(i,j)
+                write(io_unit, '(*(G0,:,","))') &
+                    i, j, K0(i,j), Ktau(i,j), K0_theory(i,j)
             end do
         end do
 

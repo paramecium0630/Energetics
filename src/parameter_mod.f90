@@ -100,9 +100,9 @@ contains
         graph_type  = "ER"
         directed    = .true.
         p           = 0.2_dp
-        network_file = "input/weight_matrix.dat"
+        network_file = "input/mnistx2/weighted_matrix.dat"
         
-        bias_file = "input/bias.dat"
+        bias_file = "input/mnistx2/bias.dat"
         bias_mode = "AUTO"
         bias_mean = 0.0_dp
         bias_std  = 0.1_dp
@@ -274,13 +274,13 @@ contains
 
         resolved_mode = trim(adjustl(param%bias_mode))
 
-        ! AUTO preserves the original project behaviour:
-        ! EXTERNAL reads bias_file; generated networks use zero bias.
+        ! AUTO follows the network source:
+        ! EXTERNAL reads bias_file; generated networks use random bias.
         if (trim(resolved_mode) == "AUTO") then
             if (trim(adjustl(param%graph_type)) == "EXTERNAL") then
                 resolved_mode = "FILE"
             else
-                resolved_mode = "ZERO"
+                resolved_mode = "RANDOM"
             end if
         end if
 

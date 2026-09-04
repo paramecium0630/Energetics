@@ -46,7 +46,8 @@ contains
         real(dp), intent(in) :: delta_x(:)
         real(dp), intent(in) :: force(:)
 
-        integer :: n, i
+        integer :: n
+        external :: dger
 
         n = size(delta_x)
 
@@ -56,17 +57,17 @@ contains
         ! Update sums
         stat%sum_delta_x = stat%sum_delta_x + delta_x
         stat%sum_force = stat%sum_force + force 
-        do i = 1, n
-            stat%sum_delta_xx(i, :) = stat%sum_delta_xx(i, :) + &
-                                      delta_x(i) * delta_x
-        end do
+
+        ! sum_delta_xx += delta_x(t) * delta_x(t)^T
+        call dger(n, n, 1.0_dp, delta_x, 1, delta_x, 1, &
+                  stat%sum_delta_xx, n)
 
         ! Update lagged sums
         if (stat%n_sample >= stat%lag_steps) then            
-            do i = 1, n
-                stat%sum_lag(i, :) = stat%sum_lag(i, :) + &
-                                     delta_x(i) * stat%history(:, 1)
-            end do
+            ! sum_lag += delta_x(t) * delta_x(t-tau)^T
+            call dger(n, n, 1.0_dp, delta_x, 1, &
+                      stat%history(:, 1), 1, stat%sum_lag, n)
+
             stat%n_lag_pairs = stat%n_lag_pairs + 1 ! Increment lagged pair count
         end if
 

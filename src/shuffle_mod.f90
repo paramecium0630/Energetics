@@ -176,7 +176,7 @@ contains
     call shuffle_FCNN_weights(adj_matrix, W_trial)
 
     ! 所有 shuffle 使用相同的 r
-    call construct_Q(r, W_trial, Q_trial)
+    call construct_Q(r, W_trial, "DIFFUSIVE", Q_trial)
 
     ! FCNN Q 是 triangular，所以 eigenvalues 是 diagonal
     max_real_part = Q_trial(1,1)
