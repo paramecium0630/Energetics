@@ -182,28 +182,47 @@ contains
         close(io_unit)
     end subroutine write_energetics_results
 
-    ! subroutine write_FCNN_results(filename, n_hidden, layer_sizes, heat_rate, work_rate, &
-    !                      internal_rate, entropy_rate)
-    !     character(len=*), intent(in) :: filename      
-    !     integer, intent(in) :: layer_sizes(:)          
-    !     real(dp), intent(in) :: heat_rate(:), work_rate(:)
-    !     real(dp), intent(in) :: internal_rate(:), entropy_rate(:)
-    !     integer :: i, n_hidden, n_layers
-    !     integer :: io_unit
+    subroutine write_energetics_by_node_and_layer( &
+        filename, node_layer, heat_rate, work_rate, &
+        internal_rate, entropy_rate)
+        character(len=*), intent(in) :: filename
+        integer, intent(in) :: node_layer(:)
+        real(dp), intent(in) :: heat_rate(:), work_rate(:)
+        real(dp), intent(in) :: internal_rate(:), entropy_rate(:)
+        integer :: n, node, io_unit, io_status
 
-    !     n_layers = n_hidden + 2
+        n = size(node_layer)
 
-    !     open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
-    !     if (i /= 0) error stop "Error opening file for writing: "//filename
+        if (n <= 0) error stop "Layer output requires at least one node"
+        if (any(node_layer < 0)) then
+            error stop "Layer IDs must be non-negative"
+        end if
+        if (size(heat_rate) /= n .or. size(work_rate) /= n .or. &
+            size(internal_rate) /= n .or. size(entropy_rate) /= n) then
+            error stop "Layer IDs and energetic rates size mismatch"
+        end if
 
-    !     write(io_unit, '(A)') "FCNN Energetics Results"
-    !     write(io_unit, '(A)') "layer, heat_rate, entropy_rate, work_rate, internal_rate"
+        open(newunit=io_unit, file=filename, status="replace", &
+             action="write", iostat=io_status)
+        if (io_status /= 0) then
+            error stop "Error opening file for writing: " // filename
+        end if
 
-    !     do i = 1, n_layers
-    !         write(io_unit, '(*(G0,:,","))') i, layer_heat_rate(i), layer_entropy_rate(i), &
-    !         layer_work_rate(i), layer_internal_rate(i)
-    !     end do
+        write(io_unit, '(A)') &
+            "Theoretical Energetics by Node and Layer"
+        write(io_unit, '(A)') &
+            "layer,node,heat_rate,entropy_rate," // &
+            "work_rate,internal_rate"
 
-    ! end subroutine write_FCNN_results
+        do node = 1, n
+            write(io_unit, '(*(G0,:,","))') &
+                node_layer(node), node, &
+                heat_rate(node), entropy_rate(node), &
+                work_rate(node), internal_rate(node)
+        end do
+
+        close(io_unit)
+
+    end subroutine write_energetics_by_node_and_layer
 
 end module output_mod

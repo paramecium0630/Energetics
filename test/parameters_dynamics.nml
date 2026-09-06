@@ -1,0 +1,31 @@
+&network
+    N = 4
+    graph_type = "ER"
+    directed = .true.
+    p = 0.25
+/
+
+&dynamics
+    r_mean = 2.0
+    r_std = 0.2
+    weight_mean = 0.3
+    weight_std = 0.4
+    bias_mode = "ZERO"
+    coupling_type = "TANH"
+    sigma_mean = 0.321
+/
+
+&theory
+    verify_lyapunov = .false.
+    n_weight_shuffles = 0
+    shuffle_seed = 10
+/
+
+&simulation
+    run_simulation = .false.
+    dt = 0.01
+    t_relax = 1.0
+    t_sample = 2.0
+    lag_steps = 1
+    seed = 99
+/

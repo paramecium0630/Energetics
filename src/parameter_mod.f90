@@ -23,8 +23,6 @@ module parameter_mod
         real(dp) :: weight_mean ! Mean weight
         real(dp) :: weight_std ! Standard deviation of weight
         character(len=16) :: coupling_type ! Coupling type 
-
-        ! Noise
         real(dp) :: sigma_mean ! Mean noise strength
 
         ! Theory and verification
@@ -87,9 +85,7 @@ contains
 
         namelist /dynamics/ r_mean, r_std, weight_mean, weight_std, &
                             bias_file, bias_mode, bias_mean, bias_std, &
-                            coupling_type
-
-        namelist /noise/ sigma_mean
+                            coupling_type, sigma_mean
 
         namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed
 
@@ -151,13 +147,6 @@ contains
 
         if (io_status /= 0) then
             print *, "Error reading &dynamics namelist."
-            stop
-        end if
-
-        read(io_unit, nml=noise, iostat=io_status)
-
-        if (io_status /= 0) then
-            print *, "Error reading &noise namelist."
             stop
         end if
 

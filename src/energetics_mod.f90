@@ -18,6 +18,8 @@ module energetics_mod
         ! Reusable workspace for each sampling step
         real(dp), allocatable :: d_delta_x(:)
         real(dp), allocatable :: delta_x_mid(:)
+        real(dp), allocatable :: x_mid(:)
+        real(dp), allocatable :: tanh_x_mid(:)
         real(dp), allocatable :: force_c(:)
         real(dp), allocatable :: force_nc(:)
 
@@ -25,6 +27,7 @@ module energetics_mod
 
     public :: initialize_energetics
     public :: update_energetics_linear
+    public :: update_energetics_tanh
     public :: finalize_energetics
 
 contains
@@ -44,6 +47,8 @@ contains
 
         allocate(energy%d_delta_x(n))
         allocate(energy%delta_x_mid(n))
+        allocate(energy%x_mid(n))
+        allocate(energy%tanh_x_mid(n))
         allocate(energy%force_c(n))
         allocate(energy%force_nc(n))
 
@@ -71,6 +76,8 @@ contains
         energy%sum_internal = 0.0_dp
         energy%d_delta_x    = 0.0_dp
         energy%delta_x_mid  = 0.0_dp
+        energy%x_mid        = 0.0_dp
+        energy%tanh_x_mid   = 0.0_dp
         energy%force_c      = 0.0_dp
         energy%force_nc     = 0.0_dp
         energy%n_step       = 0
@@ -118,6 +125,59 @@ contains
 
     end subroutine update_energetics_linear 
 
+    subroutine update_energetics_tanh( &
+        energy, x_old, x_new, r, W, bias, dt)
+        ! Use the full nonlinear force for TANH trajectory energetics.
+        ! The midpoint force represents a Stratonovich line integral.
+        type(EnergeticsState), intent(inout) :: energy
+        real(dp), intent(in) :: x_old(:), x_new(:)
+        real(dp), intent(in) :: r(:), W(:,:), bias(:)
+        real(dp), intent(in) :: dt
+        integer :: n, i
+
+        n = size(x_old)
+
+        if (size(x_new) /= n) then
+            error stop "x_old and x_new size mismatch"
+        end if
+        if (size(r) /= n .or. size(bias) /= n) then
+            error stop "TANH energetics vector size mismatch"
+        end if
+        if (size(W, 1) /= n .or. size(W, 2) /= n) then
+            error stop "TANH energetics matrix size mismatch"
+        end if
+        if (.not. allocated(energy%d_delta_x)) then
+            error stop "Energetics workspace is not initialized"
+        end if
+        if (size(energy%d_delta_x) /= n) then
+            error stop "Energetics workspace size mismatch"
+        end if
+        if (dt <= 0.0_dp) error stop "dt must be positive"
+
+        energy%d_delta_x = x_new - x_old
+        energy%x_mid = 0.5_dp * (x_old + x_new)
+        energy%tanh_x_mid = tanh(energy%x_mid)
+
+        ! F_c,i  = -r_i*x_i + b_i
+        ! F_nc,i = sum_j W_ij*tanh(x_j)
+        energy%force_c = -r * energy%x_mid + bias
+        energy%force_nc = matmul(W, energy%tanh_x_mid)
+
+        do i = 1, n
+            energy%sum_heat(i) = energy%sum_heat(i) - &
+                (energy%force_c(i) + energy%force_nc(i)) * &
+                energy%d_delta_x(i)
+            energy%sum_work(i) = energy%sum_work(i) - &
+                energy%force_nc(i) * energy%d_delta_x(i)
+            energy%sum_internal(i) = energy%sum_internal(i) - &
+                energy%force_c(i) * energy%d_delta_x(i)
+        end do
+
+        energy%n_step = energy%n_step + 1
+        energy%elapsed_time = energy%elapsed_time + dt
+
+    end subroutine update_energetics_tanh
+
     subroutine finalize_energetics(energy, heat_rate, work_rate, &
                                internal_rate, entropy_rate)
         type(EnergeticsState), intent(inout) :: energy
@@ -141,6 +201,8 @@ contains
         if (allocated(energy%sum_internal)) deallocate(energy%sum_internal)
         if (allocated(energy%d_delta_x)) deallocate(energy%d_delta_x)
         if (allocated(energy%delta_x_mid)) deallocate(energy%delta_x_mid)
+        if (allocated(energy%x_mid)) deallocate(energy%x_mid)
+        if (allocated(energy%tanh_x_mid)) deallocate(energy%tanh_x_mid)
         if (allocated(energy%force_c)) deallocate(energy%force_c)
         if (allocated(energy%force_nc)) deallocate(energy%force_nc)
 

@@ -126,7 +126,7 @@ contains
             do source_node = source_first, source_last
                 do target_node = target_first, target_last
 
-                    weight = param%weight_mean
+                    weight = param%weight_mean + param%weight_std * rand_normal()
 
                     ! source -> target
                     adj_matrix(target_node, source_node) = .true.
@@ -303,5 +303,139 @@ contains
         close(io_unit)
 
     end subroutine read_weighted_edge_list                          
+
+    subroutine assign_node_layers(layer_sizes, node_layer)
+        ! Convert FCNN layer sizes into one zero-based layer ID per node.
+        integer, intent(in) :: layer_sizes(:)
+        integer, allocatable, intent(out) :: node_layer(:)
+        integer :: layer, first_node, last_node, n_nodes
+
+        if (size(layer_sizes) <= 0) then
+            error stop "layer_sizes must not be empty"
+        end if
+        if (any(layer_sizes <= 0)) then
+            error stop "Every layer must contain at least one node"
+        end if
+
+        n_nodes = sum(layer_sizes)
+        allocate(node_layer(n_nodes))
+
+        first_node = 1
+        do layer = 1, size(layer_sizes)
+            last_node = first_node + layer_sizes(layer) - 1
+            node_layer(first_node:last_node) = layer - 1
+            first_node = last_node + 1
+        end do
+
+    end subroutine assign_node_layers
+
+    logical function is_layered_feedforward(adj_matrix, node_layer)
+        ! A layered FCNN edge must connect layer l to layer l+1.
+        logical, intent(in) :: adj_matrix(:,:)
+        integer, intent(in) :: node_layer(:)
+        integer :: n, target, source, layer
+
+        n = size(node_layer)
+        is_layered_feedforward = .false.
+
+        if (n <= 0) return
+        if (size(adj_matrix, 1) /= n .or. size(adj_matrix, 2) /= n) return
+        if (any(node_layer < 0)) return
+        if (maxval(node_layer) <= 0) return
+
+        ! Layer IDs must be contiguous from the input layer 0 onward.
+        do layer = 0, maxval(node_layer)
+            if (count(node_layer == layer) == 0) return
+        end do
+
+        do source = 1, n
+            do target = 1, n
+                if (.not. adj_matrix(target, source)) cycle
+                if (node_layer(target) /= node_layer(source) + 1) return
+            end do
+        end do
+
+        is_layered_feedforward = .true.
+
+    end function is_layered_feedforward
+
+    subroutine infer_fcnn_node_layers( &
+        adj_matrix, node_layer, is_fcnn)
+        ! Infer zero-based layers from a directed, adjacent-layer FCNN.
+        logical, intent(in) :: adj_matrix(:,:)
+        integer, allocatable, intent(out) :: node_layer(:)
+        logical, intent(out) :: is_fcnn
+        integer, allocatable :: remaining_indegree(:)
+        logical, allocatable :: current_layer_nodes(:)
+        integer :: n, target, source, layer
+        integer :: n_assigned, expected_edges, actual_edges
+
+        n = size(adj_matrix, 1)
+        is_fcnn = .false.
+
+        if (n <= 0 .or. size(adj_matrix, 2) /= n) then
+            allocate(node_layer(0))
+            return
+        end if
+
+        allocate(node_layer(n), remaining_indegree(n))
+        allocate(current_layer_nodes(n))
+
+        node_layer = -1
+        do target = 1, n
+            remaining_indegree(target) = count(adj_matrix(target, :))
+        end do
+
+        layer = 0
+        n_assigned = 0
+
+        do while (n_assigned < n)
+            current_layer_nodes = &
+                node_layer < 0 .and. remaining_indegree == 0
+
+            if (count(current_layer_nodes) == 0) return
+
+            where (current_layer_nodes)
+                node_layer = layer
+            end where
+            n_assigned = n_assigned + count(current_layer_nodes)
+
+            do source = 1, n
+                if (.not. current_layer_nodes(source)) cycle
+                do target = 1, n
+                    if (adj_matrix(target, source)) then
+                        remaining_indegree(target) = &
+                            remaining_indegree(target) - 1
+                    end if
+                end do
+            end do
+
+            layer = layer + 1
+        end do
+
+        if (.not. is_layered_feedforward(adj_matrix, node_layer)) return
+
+        ! A full FCNN contains every edge between each adjacent layer pair.
+        do layer = 0, maxval(node_layer) - 1
+            expected_edges = count(node_layer == layer) * &
+                count(node_layer == layer + 1)
+            actual_edges = 0
+
+            do source = 1, n
+                if (node_layer(source) /= layer) cycle
+                do target = 1, n
+                    if (node_layer(target) /= layer + 1) cycle
+                    if (adj_matrix(target, source)) then
+                        actual_edges = actual_edges + 1
+                    end if
+                end do
+            end do
+
+            if (actual_edges /= expected_edges) return
+        end do
+
+        is_fcnn = .true.
+
+    end subroutine infer_fcnn_node_layers
 
 end module network_mod

@@ -119,7 +119,7 @@ alpha_sim = (Ktau^T - Ktau) / tau
 
 ### Stochastic energetics
 
-程式將線性 force matrix 分解為
+`DIFFUSIVE` coupling 保留原本的線性 force-matrix 分解：
 
 ```text
 S = (Q + Q^T)/2,
@@ -135,6 +135,34 @@ internal_i = -1/4 [(Q alpha)_ii + (Q^T alpha)_ii]
 entropy_i  = (Q alpha)_ii / sigma_ii
            = -2 heat_i / sigma_ii
 ```
+
+`TANH` coupling 的模擬端則使用完整的非線性力，而不是
+`Q * delta_x`。對每一個 Stratonovich midpoint `x_mid`，使用
+
+```text
+F_c(x_mid)  = -r*x_mid + bias
+F_nc(x_mid) = W*tanh(x_mid)
+F(x_mid)    = F_c(x_mid) + F_nc(x_mid).
+```
+
+理論端仍在非線性固定點 `x*` 附近線性化。令
+
+```text
+D_jj = sech(x*_j)^2,
+B    = W D,
+Q    = -R + B,
+```
+
+則 TANH 的線性理論為
+
+```text
+heat_i     = -1/2 (Q alpha)_ii
+work_i     = -1/2 (B alpha)_ii
+internal_i = -1/2 [(-R) alpha]_ii = 0
+```
+
+因此穩態線性理論中逐節點的 `heat_i = work_i`。非線性模擬與
+這個結果的差異可能來自非線性修正、有限時間取樣或時間離散誤差。
 
 ## 專案結構
 
@@ -223,7 +251,7 @@ fpm test --profile debug \
 
 ## `parameters.nml`
 
-設定檔共有五個 namelist groups。字串選項目前應使用大寫，例如 `ER`、`EXTERNAL`、`AUTO`、`DIFFUSIVE`。
+設定檔共有四個 namelist groups。字串選項目前應使用大寫，例如 `ER`、`EXTERNAL`、`AUTO`、`DIFFUSIVE`。
 
 ### `&network`
 
@@ -258,6 +286,7 @@ fpm test --profile debug \
 | `bias_file` | `FILE` 模式讀取的 bias data 路徑 |
 | `bias_mean` | random bias 的平均值 |
 | `bias_std` | random bias 的標準差，必須非負 |
+| `sigma_mean` | 每個節點的 diagonal noise covariance/intensity |
 
 Bias 模式：
 
@@ -271,12 +300,6 @@ Bias 模式：
 RNG 在建構網路前以 `seed` 初始化。因此在固定完整輸入與 seed 時結果可重現，但 ER 網路生成會先消耗亂數，random bias 會隨前面的亂數使用量而改變。
 
 `DIFFUSIVE` 的固定點由一次 linear solve 得到；`TANH` 使用 damped Newton nonlinear solver，再於收斂固定點建立 Jacobian。TANH Newton solver 對三角 Jacobian 使用 `DTRSV`，一般 Jacobian 使用 `DGESV`。
-
-### `&noise`
-
-| 參數 | 用途 |
-|---|---|
-| `sigma_mean` | 每個節點的 diagonal noise covariance/intensity |
 
 目前
 
@@ -361,6 +384,7 @@ tau     = lag_steps * dt
     bias_mode = "AUTO"
     bias_file = "input/mnistx2/bias.dat"
     coupling_type = "DIFFUSIVE"
+    sigma_mean = 0.1
 /
 ```
 
@@ -409,6 +433,7 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 | `output/node.csv` | 每次執行 | node、`r`、noise diagonal、fixed point、實際 bias |
 | `output/edge.csv` | generated ER/FCNN | target、source、weight；`EXTERNAL` 不重複輸出 |
 | `output/energetics_theory.csv` | 每次穩定的理論計算 | 每個節點的 heat、entropy、work、internal rate |
+| `output/energetics_theory_by_node_and_layer.csv` | 內建 FCNN，或具有一致 layer metadata 的 external FCNN | 每個節點的 layer ID 與 theoretical heat、entropy、work、internal rate；input layer 編號為 0，可依 layer 加總或計算統計量 |
 | `output/mean.csv` | `run_simulation=.true.` | 每個節點的 `<x>` 與 `<F>` |
 | `output/correlation.csv` | `run_simulation=.true.` | 完整模擬 `K0`、`Ktau` 與解析 `K0_theory` |
 | `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |

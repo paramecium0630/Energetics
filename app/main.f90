@@ -28,12 +28,14 @@ program main
     character(len=48) :: wall_step_labels(max_wall_steps)
     real(dp) :: wall_step_times(max_wall_steps)
 
-    integer, allocatable :: layer_sizes(:)
+    integer, allocatable :: layer_sizes(:), node_layer(:)
     integer :: nstep, n_relax, n_hidden
     real(dp) :: max_fixedpoint_residual, max_force_at_fixedpoint
     logical, allocatable :: adj_matrix(:,:)
+    logical :: is_fcnn_network
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
-    real(dp), allocatable :: x(:), delta_x(:), force(:), Q(:, :), fixpoint(:)
+    real(dp), allocatable :: x(:), x_old(:), delta_x(:), force(:)
+    real(dp), allocatable :: Q(:, :), fixpoint(:)
     
     real(dp), allocatable :: force_at_fixedpoint(:)
     real(dp), allocatable :: mean_x(:), mean_force(:), K0(:, :), Ktau(:, :)
@@ -73,11 +75,6 @@ program main
     print *, "weight mean = ", param%weight_mean
     print *, "weight std  = ", param%weight_std
     print *, "coupling type = ", trim(param%coupling_type)
-
-    print *, "-------------------------------"
-    print *, "Noise parameters"
-    print *, "-------------------------------"
-
     print *, "sigma mean = ", param%sigma_mean
 
     print *, "-------------------------------"
@@ -95,6 +92,8 @@ program main
     ! Initialize the random number generator with the specified seed
     call initialize_seed(param%seed)
 
+    is_fcnn_network = .false.
+
     select case (trim(adjustl(param%graph_type)))
 
     case default
@@ -106,10 +105,12 @@ program main
     case("FCNN")      
       n_hidden = 2
       allocate(layer_sizes(n_hidden+2))      
-      layer_sizes = 100; layer_sizes(1) = 800; layer_sizes(n_hidden+2) = 10
+      layer_sizes = 16; layer_sizes(1) = 50; layer_sizes(n_hidden+2) = 8
       param%N = sum(layer_sizes)
       param%directed = .true.
       call generate_FCNN(param, n_hidden, layer_sizes, adj_matrix, W)
+      call assign_node_layers(layer_sizes, node_layer)
+      is_fcnn_network = .true.
 
     case ("EXTERNAL")
 
@@ -134,6 +135,17 @@ program main
     
     call initialize_bias( &
       param, bias, bias_layer, n_bias, resolved_bias_mode)
+
+    if (trim(adjustl(param%graph_type)) == "EXTERNAL") then
+      call infer_fcnn_node_layers( &
+        adj_matrix, node_layer, is_fcnn_network)
+
+      if (is_fcnn_network .and. trim(resolved_bias_mode) == "FILE") then
+        if (any(bias_layer > 0 .and. bias_layer /= node_layer)) then
+          error stop "Bias layer IDs disagree with FCNN topology"
+        end if
+      end if
+    end if
     
     print *, "Bias parameters"
     print *, "-------------------------------"
@@ -268,9 +280,16 @@ program main
     call record_wall_step("Compute theory alpha", &
                           wall_step_start, wall_clock_rate)
 
-    call compute_energetics_theory(Q, noise, alpha, &
-    heat_rate_theory, work_rate_theory, &
-    internal_rate_theory, entropy_rate_theory)
+    select case (trim(adjustl(param%coupling_type)))
+    case ("DIFFUSIVE")
+      call compute_energetics_theory(Q, noise, alpha, &
+        heat_rate_theory, work_rate_theory, &
+        internal_rate_theory, entropy_rate_theory)
+    case ("TANH")
+      call compute_energetics_theory_tanh(Q, r, noise, alpha, &
+        heat_rate_theory, work_rate_theory, &
+        internal_rate_theory, entropy_rate_theory)
+    end select
     call record_wall_step("Compute theory energetics", &
                           wall_step_start, wall_clock_rate)
 
@@ -294,7 +313,7 @@ program main
     call record_wall_step("Burn-in simulation", wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
-    allocate(delta_x_next(param%N))
+    allocate(delta_x_next(param%N), x_old(param%N))
 
     call initialize_statistics(stat, param%lag_steps, param%N)
     call initialize_energetics(energy, Q, noise)
@@ -310,11 +329,19 @@ program main
         ! statistics 使用 t 時刻的 delta_x 與 deterministic force
         call update_statistics(stat, delta_x, force) ! delta_x(t), f(t)
         ! x(t) -> x(t+dt)
+        x_old = x
         call langevin_step(x, force, noise, param%dt)
         ! t+dt 時刻
         delta_x_next = x - fixpoint ! delta_x(t+dt)
         ! Stratonovich midpoint energetics
-        call update_energetics_linear(energy, delta_x, delta_x_next, param%dt)
+        select case (trim(adjustl(param%coupling_type)))
+        case ("DIFFUSIVE")
+          call update_energetics_linear( &
+            energy, delta_x, delta_x_next, param%dt)
+        case ("TANH")
+          call update_energetics_tanh( &
+            energy, x_old, x, r, W, bias, param%dt)
+        end select
         call show_progress("Sampling", i, nstep, sample_percent)
     enddo
 
@@ -374,6 +401,14 @@ program main
     'output/energetics_theory.csv', &
     heat_rate_theory, work_rate_theory, &
     internal_rate_theory, entropy_rate_theory)
+
+    if (is_fcnn_network) then
+      call write_energetics_by_node_and_layer( &
+        'output/energetics_theory_by_node_and_layer.csv', &
+        node_layer, &
+        heat_rate_theory, work_rate_theory, &
+        internal_rate_theory, entropy_rate_theory)
+    end if
 
     ! call write_alpha('output/alpha.csv', alpha, alpha_sim)
 

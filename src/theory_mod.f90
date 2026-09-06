@@ -874,6 +874,62 @@ contains
 
     end subroutine compute_energetics_theory
 
+    subroutine compute_energetics_theory_tanh( &
+        Q, r, noise, alpha, heat_rate, work_rate, &
+        internal_rate, entropy_rate)
+        ! Linearized TANH energetics with the mechanism-based split
+        ! Q = -R + B, where B_ij = W_ij*sech(x_j*)**2.
+        real(dp), intent(in) :: Q(:,:), r(:), noise(:,:), alpha(:,:)
+        real(dp), allocatable, intent(out) :: heat_rate(:), work_rate(:)
+        real(dp), allocatable, intent(out) :: internal_rate(:)
+        real(dp), allocatable, intent(out) :: entropy_rate(:)
+        real(dp), allocatable :: B(:,:)
+        real(dp) :: diag_Qalpha, diag_Balpha, diag_minus_R_alpha
+        integer :: n, i
+
+        n = size(Q, 1)
+
+        if (n <= 0) error stop "Theory size must be positive"
+        if (size(Q, 2) /= n) error stop "Q must be square"
+        if (size(r) /= n) error stop "Q and r size mismatch"
+        if (size(alpha, 1) /= n .or. size(alpha, 2) /= n) then
+            error stop "Q and alpha size mismatch"
+        end if
+        if (size(noise, 1) /= n .or. size(noise, 2) /= n) then
+            error stop "Q and noise size mismatch"
+        end if
+
+        allocate(B(n, n))
+        allocate(heat_rate(n), work_rate(n))
+        allocate(internal_rate(n), entropy_rate(n))
+
+        ! The linearized network coupling is B = Q + R.
+        B = Q
+        do i = 1, n
+            B(i, i) = B(i, i) + r(i)
+        end do
+
+        do i = 1, n
+            if (noise(i, i) <= 0.0_dp) then
+                error stop "Noise diagonal must be positive"
+            end if
+
+            diag_Qalpha = dot_product(Q(i, :), alpha(:, i))
+            diag_Balpha = dot_product(B(i, :), alpha(:, i))
+
+            ! The conservative linear part is -R. Its rate is zero when
+            ! alpha is exactly antisymmetric, but retain the computed
+            ! value so a numerical residual remains visible.
+            diag_minus_R_alpha = -r(i) * alpha(i, i)
+
+            heat_rate(i) = -0.5_dp * diag_Qalpha
+            work_rate(i) = -0.5_dp * diag_Balpha
+            internal_rate(i) = -0.5_dp * diag_minus_R_alpha
+            entropy_rate(i) = diag_Qalpha / noise(i, i)
+        end do
+
+    end subroutine compute_energetics_theory_tanh
+
     subroutine simulate_alpha(Ktau, tau, alpha_sim)
         integer :: n
         real(dp) :: tau
