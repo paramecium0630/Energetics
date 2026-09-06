@@ -305,7 +305,7 @@ contains
     end subroutine read_weighted_edge_list                          
 
     subroutine assign_node_layers(layer_sizes, node_layer)
-        ! Convert FCNN layer sizes into one zero-based layer ID per node.
+        ! Convert FCNN layer sizes into one one-based layer ID per node.
         integer, intent(in) :: layer_sizes(:)
         integer, allocatable, intent(out) :: node_layer(:)
         integer :: layer, first_node, last_node, n_nodes
@@ -323,7 +323,7 @@ contains
         first_node = 1
         do layer = 1, size(layer_sizes)
             last_node = first_node + layer_sizes(layer) - 1
-            node_layer(first_node:last_node) = layer - 1
+            node_layer(first_node:last_node) = layer
             first_node = last_node + 1
         end do
 
@@ -340,11 +340,11 @@ contains
 
         if (n <= 0) return
         if (size(adj_matrix, 1) /= n .or. size(adj_matrix, 2) /= n) return
-        if (any(node_layer < 0)) return
-        if (maxval(node_layer) <= 0) return
+        if (any(node_layer < 1)) return
+        if (maxval(node_layer) <= 1) return
 
-        ! Layer IDs must be contiguous from the input layer 0 onward.
-        do layer = 0, maxval(node_layer)
+        ! Layer IDs must be contiguous from the input layer 1 onward.
+        do layer = 1, maxval(node_layer)
             if (count(node_layer == layer) == 0) return
         end do
 
@@ -361,7 +361,7 @@ contains
 
     subroutine infer_fcnn_node_layers( &
         adj_matrix, node_layer, is_fcnn)
-        ! Infer zero-based layers from a directed, adjacent-layer FCNN.
+        ! Infer one-based layers from a directed, adjacent-layer FCNN.
         logical, intent(in) :: adj_matrix(:,:)
         integer, allocatable, intent(out) :: node_layer(:)
         logical, intent(out) :: is_fcnn
@@ -386,7 +386,7 @@ contains
             remaining_indegree(target) = count(adj_matrix(target, :))
         end do
 
-        layer = 0
+        layer = 1
         n_assigned = 0
 
         do while (n_assigned < n)
@@ -416,7 +416,7 @@ contains
         if (.not. is_layered_feedforward(adj_matrix, node_layer)) return
 
         ! A full FCNN contains every edge between each adjacent layer pair.
-        do layer = 0, maxval(node_layer) - 1
+        do layer = 1, maxval(node_layer) - 1
             expected_edges = count(node_layer == layer) * &
                 count(node_layer == layer + 1)
             actual_edges = 0

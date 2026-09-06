@@ -34,7 +34,7 @@ program main
     logical, allocatable :: adj_matrix(:,:)
     logical :: is_fcnn_network
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
-    real(dp), allocatable :: x(:), x_old(:), delta_x(:), force(:)
+    real(dp), allocatable :: x(:), delta_x(:), force(:)
     real(dp), allocatable :: Q(:, :), fixpoint(:)
     
     real(dp), allocatable :: force_at_fixedpoint(:)
@@ -159,9 +159,15 @@ program main
     case ("FILE")
       print *, "Bias file =", trim(param%bias_file)
       print *, "No-bias nodes =", count(bias_layer == 0)
-      print *, "Layer 1 count =", count(bias_layer == 1)
-      print *, "Layer 2 count =", count(bias_layer == 2)
-      print *, "Layer 3 count =", count(bias_layer == 3)
+      if (is_fcnn_network) then
+        do i = 1, maxval(node_layer)
+          print *, "Layer", i, "bias count =", count(bias_layer == i)
+        end do
+      else
+        do i = 1, maxval(bias_layer)
+          print *, "Layer", i, "bias count =", count(bias_layer == i)
+        end do
+      end if
     end select
     print *, "-------------------------------"
 
@@ -280,16 +286,9 @@ program main
     call record_wall_step("Compute theory alpha", &
                           wall_step_start, wall_clock_rate)
 
-    select case (trim(adjustl(param%coupling_type)))
-    case ("DIFFUSIVE")
-      call compute_energetics_theory(Q, noise, alpha, &
-        heat_rate_theory, work_rate_theory, &
-        internal_rate_theory, entropy_rate_theory)
-    case ("TANH")
-      call compute_energetics_theory_tanh(Q, r, noise, alpha, &
-        heat_rate_theory, work_rate_theory, &
-        internal_rate_theory, entropy_rate_theory)
-    end select
+    call compute_energetics_theory(Q, noise, alpha, &
+      heat_rate_theory, work_rate_theory, &
+      internal_rate_theory, entropy_rate_theory)
     call record_wall_step("Compute theory energetics", &
                           wall_step_start, wall_clock_rate)
 
@@ -313,7 +312,7 @@ program main
     call record_wall_step("Burn-in simulation", wall_step_start, wall_clock_rate)
 
     call system_clock(wall_step_start)
-    allocate(delta_x_next(param%N), x_old(param%N))
+    allocate(delta_x_next(param%N))
 
     call initialize_statistics(stat, param%lag_steps, param%N)
     call initialize_energetics(energy, Q, noise)
@@ -329,19 +328,12 @@ program main
         ! statistics 使用 t 時刻的 delta_x 與 deterministic force
         call update_statistics(stat, delta_x, force) ! delta_x(t), f(t)
         ! x(t) -> x(t+dt)
-        x_old = x
         call langevin_step(x, force, noise, param%dt)
         ! t+dt 時刻
         delta_x_next = x - fixpoint ! delta_x(t+dt)
         ! Stratonovich midpoint energetics
-        select case (trim(adjustl(param%coupling_type)))
-        case ("DIFFUSIVE")
-          call update_energetics_linear( &
-            energy, delta_x, delta_x_next, param%dt)
-        case ("TANH")
-          call update_energetics_tanh( &
-            energy, x_old, x, r, W, bias, param%dt)
-        end select
+        call update_energetics( &
+          energy, delta_x, delta_x_next, param%dt)
         call show_progress("Sampling", i, nstep, sample_percent)
     enddo
 

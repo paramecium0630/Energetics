@@ -194,8 +194,8 @@ contains
         n = size(node_layer)
 
         if (n <= 0) error stop "Layer output requires at least one node"
-        if (any(node_layer < 0)) then
-            error stop "Layer IDs must be non-negative"
+        if (any(node_layer < 1)) then
+            error stop "Layer IDs must be positive"
         end if
         if (size(heat_rate) /= n .or. size(work_rate) /= n .or. &
             size(internal_rate) /= n .or. size(entropy_rate) /= n) then

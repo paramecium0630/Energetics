@@ -68,8 +68,8 @@ for column in required_columns:
 if energetics["node"].duplicated().any():
     raise ValueError("The same node appears more than once")
 
-if (energetics["layer"] < 0).any():
-    raise ValueError("Layer IDs must be non-negative")
+if (energetics["layer"] < 1).any():
+    raise ValueError("Layer IDs must be positive")
 
 rate_columns = [
     "heat_rate",
@@ -99,16 +99,17 @@ layer_numbers = sorted(
 )
 
 last_layer = max(layer_numbers)
+first_layer = min(layer_numbers)
 
 layer_labels = []
 
 for layer in layer_numbers:
-    if layer == 0:
+    if layer == first_layer:
         label = "Input"
     elif layer == last_layer:
         label = "Output"
     else:
-        label = f"Hidden {layer}"
+        label = f"Hidden {layer - first_layer}"
 
     layer_labels.append(label)
 
@@ -291,7 +292,7 @@ for ax, setting in zip(
 
     boxplot = ax.boxplot(
         values_by_layer,
-        tick_labels=layer_labels,
+        labels=layer_labels,
         patch_artist=True,
         showfliers=True,
         flierprops={

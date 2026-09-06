@@ -13,7 +13,8 @@
 - 保持 FCNN topology 不變的 weight-shuffle ensemble；
 - 三角矩陣與一般矩陣各自最佳化的 Lyapunov solver。
 
-專案仍在開發中。BA、WS generator 與完整 nonlinear TANH energetics 尚未完成。
+專案仍在開發中。BA、WS generator 尚未完成；TANH energetics 目前刻意採用
+fixed-point Jacobian 的線性化定義，以便和解析理論直接比較。
 
 ## 數學模型
 
@@ -119,7 +120,7 @@ alpha_sim = (Ktau^T - Ktau) / tau
 
 ### Stochastic energetics
 
-`DIFFUSIVE` coupling 保留原本的線性 force-matrix 分解：
+所有 coupling types 的 energetics 都使用固定點 Jacobian 的線性分解：
 
 ```text
 S = (Q + Q^T)/2,
@@ -136,33 +137,20 @@ entropy_i  = (Q alpha)_ii / sigma_ii
            = -2 heat_i / sigma_ii
 ```
 
-`TANH` coupling 的模擬端則使用完整的非線性力，而不是
-`Q * delta_x`。對每一個 Stratonovich midpoint `x_mid`，使用
+模擬軌跡的 dynamics 仍使用所選 coupling 的完整 force，但 energetics
+以固定點 fluctuation `delta_x = x - x*` 計算。對每一個 Stratonovich
+midpoint，使用
 
 ```text
-F_c(x_mid)  = -r*x_mid + bias
-F_nc(x_mid) = W*tanh(x_mid)
-F(x_mid)    = F_c(x_mid) + F_nc(x_mid).
+F_c  = S delta_x_mid,
+F_nc = A delta_x_mid,
+F    = Q delta_x_mid.
 ```
 
-理論端仍在非線性固定點 `x*` 附近線性化。令
-
-```text
-D_jj = sech(x*_j)^2,
-B    = W D,
-Q    = -R + B,
-```
-
-則 TANH 的線性理論為
-
-```text
-heat_i     = -1/2 (Q alpha)_ii
-work_i     = -1/2 (B alpha)_ii
-internal_i = -1/2 [(-R) alpha]_ii = 0
-```
-
-因此穩態線性理論中逐節點的 `heat_i = work_i`。非線性模擬與
-這個結果的差異可能來自非線性修正、有限時間取樣或時間離散誤差。
+因此 DIFFUSIVE 與 TANH 共用相同的 simulation/theory energetics 定義。
+對 TANH 而言，這是 fixed-point linearized energetics，不是完整 nonlinear
+force 的精確能量收支。模擬與理論的差異可能來自非線性修正、有限時間
+取樣或時間離散誤差。
 
 ## 專案結構
 
@@ -193,6 +181,7 @@ Energetics/
 │   ├── check.f90                   bias.dat reader 測試
 │   ├── test_fixed_point.f90        triangular fixed-point solver 測試
 │   ├── test_tanh_fixed_point.f90   TANH fixed point 與 Jacobian 測試
+│   ├── test_linearized_energetics.f90  統一 S/A energetics 測試
 │   └── test_random_bias.f90        random bias reproducibility 測試
 ├── fpm.toml
 └── README.md
@@ -368,6 +357,7 @@ tau     = lag_steps * dt
 
 - `global_node` 用來寫入 `bias(global_node)`；
 - `layer_id` 與 `local_node` 用於描述 FCNN layer 位置並接受基本正值驗證；
+- layer ID 從 1 開始：input layer 是 1，後續 hidden/output layers 依序遞增；
 - 未出現在檔案中的節點 bias 保持為零，例如 FCNN input layer；
 - duplicate `global_node`、超出 `1:N` 的 index 或無效記錄會停止程式；
 - 空行及以 `#` 或 `!` 開頭的行會略過。
@@ -433,7 +423,7 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 | `output/node.csv` | 每次執行 | node、`r`、noise diagonal、fixed point、實際 bias |
 | `output/edge.csv` | generated ER/FCNN | target、source、weight；`EXTERNAL` 不重複輸出 |
 | `output/energetics_theory.csv` | 每次穩定的理論計算 | 每個節點的 heat、entropy、work、internal rate |
-| `output/energetics_theory_by_node_and_layer.csv` | 內建 FCNN，或具有一致 layer metadata 的 external FCNN | 每個節點的 layer ID 與 theoretical heat、entropy、work、internal rate；input layer 編號為 0，可依 layer 加總或計算統計量 |
+| `output/energetics_theory_by_node_and_layer.csv` | 內建 FCNN，或具有一致 layer metadata 的 external FCNN | 每個節點的 layer ID 與 theoretical heat、entropy、work、internal rate；input layer 編號為 1，可依 layer 加總或計算統計量 |
 | `output/mean.csv` | `run_simulation=.true.` | 每個節點的 `<x>` 與 `<F>` |
 | `output/correlation.csv` | `run_simulation=.true.` | 完整模擬 `K0`、`Ktau` 與解析 `K0_theory` |
 | `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |
@@ -500,6 +490,7 @@ python3 analysis/analyze_fcnn_inputs.py
 - lower-triangular linear fixed point 的解與 residual；
 - TANH damped-Newton solver 能找回已知固定點，且 fixed-point residual 符合 tolerance；
 - TANH Jacobian 的每一欄符合 centered finite difference，並確認 coupling dispatch 沒有改變 DIFFUSIVE `Q`；
+- DIFFUSIVE/TANH 共用的 fixed-point linearized `S/A` simulation 與 theory energetics；
 - 固定 seed 下 random bias 的可重現性，以及 `AUTO` 對 generated network 會選擇 `RANDOM`。
 
 尚缺的重要測試包括 Lyapunov residual、解析 covariance、energetics identity，以及 external edge-list parser。研究結果使用前，建議逐步補齊這些 regression tests。
@@ -508,7 +499,7 @@ python3 analysis/analyze_fcnn_inputs.py
 
 - BA 與 WS network 尚未實作。
 - 程式內 FCNN layer sizes 仍寫在 `app/main.f90`，尚未由 namelist 或 layer file 控制。
-- TANH 的 covariance、`alpha` 與 energetics theory 使用 fixed-point Jacobian；simulation energetics 也仍使用此線性化分解，尚不是完整 nonlinear stochastic energetics。
+- TANH 的 covariance、`alpha` 與 simulation/theory energetics 都使用 fixed-point Jacobian，因此不是完整 nonlinear stochastic energetics。
 - TANH Newton 的 tolerance、maximum iterations 與 backtracking 次數目前是主程式常數，尚未放入 namelist。
 - `r_std` 目前不生效；所有 `r(i)` 都等於 `r_mean`。
 - noise 只支援 diagonal matrix，且目前每個 diagonal element 相同。

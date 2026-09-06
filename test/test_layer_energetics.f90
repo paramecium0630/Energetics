@@ -19,7 +19,7 @@ program test_layer_energetics
     real(dp) :: node_heat, node_entropy, node_work, node_internal
     character(len=256) :: line
 
-    node_layer = [0, 0, 1, 1, 2]
+    node_layer = [1, 1, 2, 2, 3]
     layer_sizes = [2, 2, 1]
 
     call assign_node_layers(layer_sizes, inferred_layer)

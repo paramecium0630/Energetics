@@ -32,20 +32,20 @@ program check
         error stop "Incorrect number of no-bias nodes"
     end if
 
-    if (count(bias_layer == 1) /= 256) then
-        error stop "Incorrect layer-1 count"
-    end if
-
     if (count(bias_layer == 2) /= 256) then
         error stop "Incorrect layer-2 count"
     end if
 
-    if (count(bias_layer == 3) /= 10) then
+    if (count(bias_layer == 3) /= 256) then
         error stop "Incorrect layer-3 count"
     end if
 
+    if (count(bias_layer == 4) /= 10) then
+        error stop "Incorrect layer-4 count"
+    end if
+
     if (abs(bias(785) - 5.0167959183454514e-02_dp) > 1.0e-14_dp) then
-        error stop "Incorrect first layer-1 bias"
+        error stop "Incorrect first layer-2 bias"
     end if
 
     if (abs(bias(1306) - 9.9143639206886292e-02_dp) > 1.0e-14_dp) then

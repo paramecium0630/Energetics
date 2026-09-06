@@ -172,7 +172,7 @@ print("FCNN structure inferred from the weight topology")
 print("------------------------------------------------")
 print(f"Total: {len(all_nodes)} nodes and {len(weights)} directed edges")
 
-for layer_number, nodes_in_layer in enumerate(layers):
+for layer_number, nodes_in_layer in enumerate(layers, start=1):
     number_of_nodes = len(nodes_in_layer)
 
     print(f"Layer {layer_number}: {number_of_nodes} nodes")
@@ -184,7 +184,7 @@ for layer_number, nodes_in_layer in enumerate(layers):
 
 node_to_layer = {}
 
-for layer_number, nodes_in_layer in enumerate(layers):
+for layer_number, nodes_in_layer in enumerate(layers, start=1):
     for node in nodes_in_layer:
         node_to_layer[node] = layer_number
 
@@ -270,8 +270,8 @@ for connection in connection_pairs.itertuples(index=False):
     positive_flags = connection_weights > 0.0
     positive_fraction = positive_flags.mean()
 
-    number_of_source_nodes = len(layers[source_layer])
-    number_of_target_nodes = len(layers[target_layer])
+    number_of_source_nodes = len(layers[source_layer - 1])
+    number_of_target_nodes = len(layers[target_layer - 1])
     number_of_possible_edges = (
         number_of_source_nodes * number_of_target_nodes
     )
@@ -450,7 +450,7 @@ number_of_unlisted_biases = len(all_nodes) - number_of_listed_biases
 
 bias_statistics_rows = []
 
-for layer_number, nodes_in_layer in enumerate(layers):
+for layer_number, nodes_in_layer in enumerate(layers, start=1):
     layer_bias_values = []
     listed_count = 0
 
@@ -544,7 +544,7 @@ weight_histogram_axis.grid(alpha=0.25)
 # 不同 layer connections 的 weight boxplot。
 weight_boxplot_axis.boxplot(
     weight_values_for_boxplot,
-    tick_labels=boxplot_labels,
+    labels=boxplot_labels,
     showfliers=False,
 )
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
