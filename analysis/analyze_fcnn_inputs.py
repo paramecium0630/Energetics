@@ -18,11 +18,11 @@ import pandas as pd
 # -----------------------------------------------------------------------------
 
 weight_file = Path(
-    "/home/para/Fortran/Energetics/input/mnistx6/weighted_matrix.dat"
+    "/home/para/Fortran/Energetics/input/mnistx2/weighted_matrix.dat"
 )
 
 bias_file = Path(
-    "/home/para/Fortran/Energetics/input/mnistx6/bias.dat"
+    "/home/para/Fortran/Energetics/input/mnistx2/bias.dat"
 )
 
 weight_statistics_file = Path(
@@ -231,6 +231,8 @@ else:
 # -----------------------------------------------------------------------------
 
 all_weight_values = weights["weight"]
+all_weight_mean = all_weight_values.mean()
+all_weight_std = all_weight_values.std(ddof=1)
 
 # -----------------------------------------------------------------------------
 # 11. 分別計算每一種 layer connection 的 weight 統計量
@@ -449,6 +451,8 @@ number_of_unlisted_biases = len(all_nodes) - number_of_listed_biases
 # -----------------------------------------------------------------------------
 
 bias_statistics_rows = []
+bias_values_for_boxplot = []
+bias_boxplot_labels = []
 
 for layer_number, nodes_in_layer in enumerate(layers, start=1):
     layer_bias_values = []
@@ -482,8 +486,29 @@ for layer_number, nodes_in_layer in enumerate(layers, start=1):
 
     bias_statistics_rows.append(one_bias_statistics_row)
 
+    # Layer 1 is the input layer and contains only default zero biases.
+    # Keep it in the statistics table, but omit it from the plots.
+    if layer_number > 1:
+        bias_values_for_boxplot.append(layer_bias_values.to_numpy())
+        bias_boxplot_labels.append(f"Layer {layer_number}")
+
 
 bias_statistics = pd.DataFrame(bias_statistics_rows)
+all_bias_values = pd.Series(
+    [
+        bias_by_node[node]
+        for node in sorted(all_nodes)
+        if node_to_layer[node] > 1
+    ],
+    dtype="float64",
+)
+nonzero_bias_values = all_bias_values[all_bias_values != 0.0]
+
+if nonzero_bias_values.empty:
+    raise ValueError("No nonzero bias is available for plotting statistics")
+
+nonzero_bias_mean = nonzero_bias_values.mean()
+nonzero_bias_std = nonzero_bias_values.std(ddof=1)
 
 print()
 print("Bias summary by topology layer")
@@ -524,7 +549,7 @@ figure, axes = plt.subplots(2, 2, figsize=(12, 9))
 weight_histogram_axis = axes[0, 0]
 weight_boxplot_axis = axes[0, 1]
 bias_histogram_axis = axes[1, 0]
-bias_by_node_axis = axes[1, 1]
+bias_boxplot_axis = axes[1, 1]
 
 
 # 所有 edge weights 的 histogram。
@@ -537,8 +562,17 @@ weight_histogram_axis.hist(
 weight_histogram_axis.axvline(0.0, color="black", linewidth=1)
 weight_histogram_axis.set_xlabel("Weight")
 weight_histogram_axis.set_ylabel("Number of edges")
-weight_histogram_axis.set_title("All edge weights")
+weight_histogram_axis.set_title("All nonzero edge weights")
 weight_histogram_axis.grid(alpha=0.25)
+weight_histogram_axis.text(
+    0.03,
+    0.95,
+    f"Mean = {all_weight_mean:.6g}\nSample std = {all_weight_std:.6g}",
+    transform=weight_histogram_axis.transAxes,
+    horizontalalignment="left",
+    verticalalignment="top",
+    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+)
 
 
 # 不同 layer connections 的 weight boxplot。
@@ -550,56 +584,45 @@ weight_boxplot_axis.boxplot(
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
 weight_boxplot_axis.set_xlabel("Source layer -> target layer")
 weight_boxplot_axis.set_ylabel("Weight")
-weight_boxplot_axis.set_title("Weights by layer connection")
+weight_boxplot_axis.set_title("Weights by layer")
 weight_boxplot_axis.grid(alpha=0.25)
 
 
-# 各層列在 bias.dat 中的 bias histogram。
-# 不畫 layer 0 補上的大量零值，以免其他分布被遮住。
-listed_bias_layers = sorted(set(biases["layer"]))
-
-for layer_number in listed_bias_layers:
-    record_is_in_this_layer = biases["layer"] == layer_number
-    biases_in_this_layer = biases[record_is_in_this_layer]
-    bias_values_in_this_layer = biases_in_this_layer["bias"]
-
-    bias_histogram_axis.hist(
-        bias_values_in_this_layer,
-        bins=30,
-        alpha=0.55,
-        label=f"layer {layer_number}",
-    )
-
+# 所有非 input-layer 節點的 bias histogram。
+bias_histogram_axis.hist(
+    all_bias_values,
+    bins=60,
+    color="tab:orange",
+    alpha=0.8,
+)
 bias_histogram_axis.axvline(0.0, color="black", linewidth=1)
 bias_histogram_axis.set_xlabel("Bias")
-bias_histogram_axis.set_ylabel("Number of listed nodes")
-bias_histogram_axis.set_title("Listed biases by layer")
-bias_histogram_axis.legend()
+bias_histogram_axis.set_ylabel("Number of nodes")
+bias_histogram_axis.set_title("All nonzero biases")
 bias_histogram_axis.grid(alpha=0.25)
+bias_histogram_axis.text(
+    0.03,
+    0.95,
+    f"Nonzero bias mean = {nonzero_bias_mean:.6g}\n"
+    f"Nonzero bias std = {nonzero_bias_std:.6g}",
+    transform=bias_histogram_axis.transAxes,
+    horizontalalignment="left",
+    verticalalignment="top",
+    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+)
 
 
-# 畫出 bias 與 global node index 的關係。
-for layer_number in listed_bias_layers:
-    record_is_in_this_layer = biases["layer"] == layer_number
-    biases_in_this_layer = biases[record_is_in_this_layer]
-
-    global_node_values = biases_in_this_layer["node"]
-    bias_values_in_this_layer = biases_in_this_layer["bias"]
-
-    bias_by_node_axis.scatter(
-        global_node_values,
-        bias_values_in_this_layer,
-        s=14,
-        alpha=0.7,
-        label=f"layer {layer_number}",
-    )
-
-bias_by_node_axis.axhline(0.0, color="black", linewidth=1)
-bias_by_node_axis.set_xlabel("Global node index")
-bias_by_node_axis.set_ylabel("Bias")
-bias_by_node_axis.set_title("Bias of each listed node")
-bias_by_node_axis.legend()
-bias_by_node_axis.grid(alpha=0.25)
+# 各 non-input topology layer 的完整 bias boxplot。
+bias_boxplot_axis.boxplot(
+    bias_values_for_boxplot,
+    labels=bias_boxplot_labels,
+    showfliers=False,
+)
+bias_boxplot_axis.axhline(0.0, color="black", linewidth=1)
+# bias_boxplot_axis.set_xlabel("Topology layer")
+bias_boxplot_axis.set_ylabel("Bias")
+bias_boxplot_axis.set_title("Biases by layer")
+bias_boxplot_axis.grid(alpha=0.25)
 
 
 figure.tight_layout()

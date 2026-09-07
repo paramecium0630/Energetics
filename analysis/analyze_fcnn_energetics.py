@@ -1,4 +1,4 @@
-"""Plot theoretical energetic rates for every FCNN layer."""
+"""Analyze theoretical entropy production for every FCNN layer."""
 
 from pathlib import Path
 
@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 INPUT_FILE = (
     PROJECT_ROOT
-    / "output"
+    / "output" / "256x6"
     / "energetics_theory_by_node_and_layer.csv"
 )
 
@@ -22,12 +22,7 @@ FIGURE_DIR = PROJECT_ROOT / "figure"
 
 TOTAL_FIGURE_FILE = (
     FIGURE_DIR
-    / "energetics_theory_layer_totals.png"
-)
-
-DISTRIBUTION_FIGURE_FILE = (
-    FIGURE_DIR
-    / "energetics_theory_layer_distributions.png"
+    / "entropy_production_by_layer.png"
 )
 
 # -----------------------------------------------------------------------------
@@ -53,10 +48,7 @@ energetics.columns = energetics.columns.str.strip()
 required_columns = [
     "layer",
     "node",
-    "heat_rate",
     "entropy_rate",
-    "work_rate",
-    "internal_rate",
 ]
 
 for column in required_columns:
@@ -71,20 +63,10 @@ if energetics["node"].duplicated().any():
 if (energetics["layer"] < 1).any():
     raise ValueError("Layer IDs must be positive")
 
-rate_columns = [
-    "heat_rate",
-    "entropy_rate",
-    "work_rate",
-    "internal_rate",
-]
+entropy_values = energetics["entropy_rate"].to_numpy()
 
-for column in rate_columns:
-    values = energetics[column].to_numpy()
-
-    if not np.all(np.isfinite(values)):
-        raise ValueError(
-            f"Column '{column}' contains NaN or infinity"
-        )
+if not np.all(np.isfinite(entropy_values)):
+    raise ValueError("Column 'entropy_rate' contains NaN or infinity")
 
 # -----------------------------------------------------------------------------
 # 4. 按 layer 和 node 排序
@@ -133,110 +115,114 @@ for layer in layer_numbers:
         "node_count": node_count,
     }
 
-    for rate in rate_columns:
-        layer_values = layer_data[rate]
+    layer_values = layer_data["entropy_rate"]
+    summary_row["entropy_total"] = layer_values.sum()
+    summary_row["entropy_mean"] = layer_values.mean()
 
-        summary_row[f"{rate}_total"] = (
-            layer_values.sum()
-        )
-
-        summary_row[f"{rate}_mean"] = (
-            layer_values.mean()
-        )
-
-        if node_count > 1:
-            summary_row[f"{rate}_std"] = (
-                layer_values.std()
-            )
-        else:
-            summary_row[f"{rate}_std"] = 0.0
+    if node_count > 1:
+        summary_row["entropy_std"] = layer_values.std(ddof=1)
+    else:
+        summary_row["entropy_std"] = 0.0
 
     layer_summary_rows.append(summary_row)
 
 layer_summary = pd.DataFrame(layer_summary_rows)
 
-print("Layer-wise energetic statistics")
-print(layer_summary)
+total_entropy = layer_summary["entropy_total"].sum()
+
+if np.isclose(total_entropy, 0.0, rtol=0.0, atol=1.0e-14):
+    raise ValueError("Total entropy production is zero; ratios are undefined")
+
+layer_summary["entropy_fraction"] = (
+    layer_summary["entropy_total"] / total_entropy
+)
+layer_summary["entropy_percentage"] = (
+    100.0 * layer_summary["entropy_fraction"]
+)
+
+print("Layer-wise entropy-production statistics")
+print(layer_summary.to_string(index=False))
+print(f"Total entropy production rate = {total_entropy:.15g}")
 
 # -----------------------------------------------------------------------------
 # 6. 檢查 layer totals
 # -----------------------------------------------------------------------------
 
-for rate in rate_columns:
+total_from_nodes = energetics["entropy_rate"].sum()
 
-    total_from_nodes = energetics[rate].sum()
+if not np.isclose(
+    total_from_nodes,
+    total_entropy,
+    rtol=1.0e-12,
+    atol=1.0e-14,
+):
+    raise ValueError(
+        "Layer totals do not reproduce the network total entropy"
+    )
 
-    total_from_layers = layer_summary[
-        f"{rate}_total"
-    ].sum()
-
-    if not np.isclose(
-        total_from_nodes,
-        total_from_layers,
-        rtol=1.0e-12,
-        atol=1.0e-14,
-    ):
-        raise ValueError(
-            f"Layer totals do not reproduce the "
-            f"network total for {rate}"
-        )
+if not np.isclose(
+    layer_summary["entropy_fraction"].sum(),
+    1.0,
+    rtol=1.0e-12,
+    atol=1.0e-14,
+):
+    raise ValueError("Layer entropy fractions do not sum to one")
 
 
 # -----------------------------------------------------------------------------
-# 7. 畫每層 total energetic rates
+# 7. 畫每層占比與 node-wise entropy distribution
 # -----------------------------------------------------------------------------
-
-plot_settings = [
-    ("heat_rate", "Heat rate", "tab:red"),
-    (
-        "entropy_rate",
-        "Entropy production rate",
-        "tab:orange",
-    ),
-    ("work_rate", "Work rate", "tab:blue"),
-    (
-        "internal_rate",
-        "Internal-energy rate",
-        "tab:green",
-    ),
-]
 
 figure, axes = plt.subplots(
+    1,
     2,
-    2,
-    figsize=(12, 9),
+    figsize=(12, 5),
 )
 
-for ax, setting in zip(
-    axes.flat,
-    plot_settings,
-):
-    rate_name = setting[0]
-    title = setting[1]
-    color = setting[2]
+percentage_bars = axes[0].bar(
+    layer_labels,
+    layer_summary["entropy_percentage"],
+    color="tab:purple",
+    alpha=0.8,
+)
+axes[0].set_title("Percentage of total entropy production")
+axes[0].set_xlabel("Layer")
+axes[0].set_ylabel("Percentage (%)")
+axes[0].grid(axis="y", alpha=0.25)
+axes[0].bar_label(percentage_bars, fmt="%.2f%%", padding=3)
 
-    total_column = f"{rate_name}_total"
+entropy_values_by_layer = []
 
-    ax.bar(
-        layer_labels,
-        layer_summary[total_column],
-        color=color,
-        alpha=0.8,
-    )
+for layer in layer_numbers:
+    layer_entropy_values = energetics.loc[
+        energetics["layer"] == layer,
+        "entropy_rate",
+    ]
+    entropy_values_by_layer.append(layer_entropy_values.to_numpy())
 
-    ax.axhline(
-        0.0,
-        color="black",
-        linewidth=1.0,
-    )
+entropy_boxplot = axes[1].boxplot(
+    entropy_values_by_layer,
+    labels=layer_labels,
+    patch_artist=True,
+    showfliers=True,
+    flierprops={
+        "markersize": 2,
+        "alpha": 0.3,
+    },
+)
 
-    ax.set_title(title)
-    ax.set_xlabel("Layer")
-    ax.set_ylabel("Total rate")
-    ax.grid(axis="y", alpha=0.25)
+for box in entropy_boxplot["boxes"]:
+    box.set_facecolor("tab:orange")
+    box.set_alpha(0.6)
+
+axes[1].axhline(0.0, color="black", linewidth=1.0)
+axes[1].set_title("Entropy production rate of each layer")
+axes[1].set_xlabel("Layer")
+axes[1].set_ylabel("Entropy production rate of each node")
+axes[1].grid(axis="y", alpha=0.25)
 
 figure.suptitle(
-    "Theoretical energetic rates by layer",
+    f"Theoretical entropy production (total = {total_entropy:.6g})",
     fontsize=16,
 )
 
@@ -256,84 +242,8 @@ figure.savefig(
 )
 
 print(
-    f"Saved total-rate figure: "
+    f"Saved entropy figure: "
     f"{TOTAL_FIGURE_FILE}"
-)
-
-# -----------------------------------------------------------------------------
-# 8. 畫每層內部的 node-wise distribution
-# -----------------------------------------------------------------------------
-
-figure, axes = plt.subplots(
-    2,
-    2,
-    figsize=(12, 9),
-)
-
-for ax, setting in zip(
-    axes.flat,
-    plot_settings,
-):
-    rate_name = setting[0]
-    title = setting[1]
-    color = setting[2]
-
-    values_by_layer = []
-
-    for layer in layer_numbers:
-        layer_values = energetics.loc[
-            energetics["layer"] == layer,
-            rate_name,
-        ]
-
-        values_by_layer.append(
-            layer_values.to_numpy()
-        )
-
-    boxplot = ax.boxplot(
-        values_by_layer,
-        labels=layer_labels,
-        patch_artist=True,
-        showfliers=True,
-        flierprops={
-            "markersize": 2,
-            "alpha": 0.3,
-        },
-    )
-
-    for box in boxplot["boxes"]:
-        box.set_facecolor(color)
-        box.set_alpha(0.6)
-
-    ax.axhline(
-        0.0,
-        color="black",
-        linewidth=1.0,
-    )
-
-    ax.set_title(title)
-    ax.set_xlabel("Layer")
-    ax.set_ylabel("Rate per node")
-    ax.grid(axis="y", alpha=0.25)
-
-figure.suptitle(
-    "Distribution of theoretical node rates in each layer",
-    fontsize=16,
-)
-
-figure.tight_layout(
-    rect=(0.0, 0.0, 1.0, 0.96)
-)
-
-figure.savefig(
-    DISTRIBUTION_FIGURE_FILE,
-    dpi=200,
-    bbox_inches="tight",
-)
-
-print(
-    f"Saved distribution figure: "
-    f"{DISTRIBUTION_FIGURE_FILE}"
 )
 
 plt.show()

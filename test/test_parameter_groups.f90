@@ -16,6 +16,9 @@ program test_parameter_groups
     if (param%N /= 4 .or. param%seed /= 99) then
         error stop "Namelist groups after the dynamics merge were misread"
     end if
+    if (trim(param%shuffle_mode) /= "BOTH") then
+        error stop "shuffle_mode was not read from &theory"
+    end if
 
     print *, "Dynamics sigma namelist test passed."
 

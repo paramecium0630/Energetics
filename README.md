@@ -10,7 +10,7 @@
 - 線性 diffusive dynamics 的固定點、穩態 covariance、`alpha` 與 energetics；
 - nonlinear TANH dynamics 的 damped-Newton fixed point 與 fixed-point Jacobian；
 - Euler–Maruyama 模擬與 Stratonovich midpoint energetics；
-- 保持 FCNN topology 不變的 weight-shuffle ensemble；
+- 保持 FCNN topology 不變的 weight/bias shuffle ensemble；
 - 三角矩陣與一般矩陣各自最佳化的 Lyapunov solver。
 
 專案仍在開發中。BA、WS generator 尚未完成；TANH energetics 目前刻意採用
@@ -85,7 +85,9 @@ F_i(x) = -r_i x_i + b_i + sum_j W_ij tanh(x_j).
 Q(i,j) = W(i,j) * [1 - tanh(x*(j))^2] - r(i) delta(i,j).
 ```
 
-TANH simulation 使用完整 nonlinear force；Lyapunov covariance、`alpha` 與解析 energetics 則是固定點附近的線性化結果。兩者在 noise 小、trajectory 留在固定點附近時才預期接近。
+TANH trajectory 使用完整 nonlinear force 推進；covariance theory、`alpha`，以及
+simulation/theory energetics 都使用固定點附近的 Jacobian 線性化。兩者在 noise
+小、trajectory 留在固定點附近時才預期接近。
 
 ### Covariance 與 alpha
 
@@ -175,14 +177,21 @@ Energetics/
 │   ├── mnistx4/                    4-hidden-layer FCNN weights 與 bias
 │   └── mnistx6/                    6-hidden-layer FCNN weights 與 bias
 ├── output/                         Fortran 執行結果
-├── analysis/                       Python 分析與繪圖程式
+├── analysis/
+│   ├── plot_simulation_vs_theory.py   simulation/theory 對比圖
+│   ├── analyze_fcnn_inputs.py         FCNN weight/bias layer statistics
+│   ├── analyze_fcnn_energetics.py     FCNN 逐層理論 energetics
+│   └── fcnn.py                        獨立的 layer-level 理論腳本
 ├── figure/                         圖片輸出
 ├── test/
 │   ├── check.f90                   bias.dat reader 測試
 │   ├── test_fixed_point.f90        triangular fixed-point solver 測試
+│   ├── test_parameter_groups.f90   namelist group 與 sigma 測試
+│   ├── test_random_bias.f90        random bias reproducibility 測試
+│   ├── test_layer_energetics.f90   FCNN layer inference/output 測試
+│   ├── test_shuffle_ensemble.f90   TANH weight/bias shuffle 測試
 │   ├── test_tanh_fixed_point.f90   TANH fixed point 與 Jacobian 測試
-│   ├── test_linearized_energetics.f90  統一 S/A energetics 測試
-│   └── test_random_bias.f90        random bias reproducibility 測試
+│   └── test_linearized_energetics.f90  統一 S/A energetics 測試
 ├── fpm.toml
 └── README.md
 ```
@@ -226,6 +235,16 @@ fpm run \
   --link-flag "-qmkl"
 ```
 
+對大型 dense matrix，Intel LAPACK/BLAS 或 Fortran array temporary 可能超過預設
+stack limit。若執行時在 Lyapunov 階段出現 `SIGSEGV`，可先在同一個 terminal
+session 設定：
+
+```bash
+ulimit -s unlimited
+```
+
+再執行上述 `fpm run`。這只調整目前 shell session 的 stack limit。
+
 Debug tests：
 
 ```bash
@@ -257,7 +276,7 @@ fpm test --profile debug \
 | `graph_type` | 行為 |
 |---|---|
 | `ER` | 使用 `N`、`p`、`directed`，edge weight 為 `weight_mean + weight_std * Normal(0,1)` |
-| `FCNN` | 產生相鄰層 fully connected 的 feed-forward 網路；目前 layer sizes 在 `app/main.f90` 中固定為 `[800,100,100,10]`，weight 固定為 `weight_mean` |
+| `FCNN` | 產生相鄰層 fully connected 的 feed-forward 網路；目前 layer sizes 在 `app/main.f90` 中固定為 `[50,16,16,8]`，每條 weight 為 `weight_mean + weight_std * Normal(0,1)` |
 | `EXTERNAL` | 讀取 `network_file`；由最大 node index 推得 `N`，並視為 directed |
 
 `generate_ba` 與 `generate_ws` 目前只是尚未實作的介面，不能由主程式選用。
@@ -268,8 +287,8 @@ fpm test --profile debug \
 |---|---|
 | `r_mean` | 目前所有節點皆使用 `r(i) = r_mean` |
 | `r_std` | 已保留但目前未套用到 `r` |
-| `weight_mean` | ER weight 的平均值，也是程式內 FCNN 的固定 weight |
-| `weight_std` | ER weight 的標準差；程式內 FCNN 目前不使用 |
+| `weight_mean` | ER 與程式內 FCNN weight 的平均值 |
+| `weight_std` | ER 與程式內 FCNN weight 的標準差 |
 | `coupling_type` | `DIFFUSIVE` 或 `TANH` |
 | `bias_mode` | `AUTO`、`ZERO`、`RANDOM` 或 `FILE` |
 | `bias_file` | `FILE` 模式讀取的 bias data 路徑 |
@@ -304,8 +323,9 @@ Euler–Maruyama increment 使用 `sqrt(sigma(i,i) * dt) * Normal(0,1)`。模擬
 | 參數 | 用途 |
 |---|---|
 | `verify_lyapunov` | 是否計算 `Q K0 + K0 Q^T + sigma` 的最大絕對 residual |
-| `n_weight_shuffles` | weight-shuffle 次數；`0` 表示不執行 |
+| `n_weight_shuffles` | shuffle ensemble 的 trial 次數；`0` 表示不執行 |
 | `shuffle_seed` | shuffle ensemble 的獨立 RNG seed |
+| `shuffle_mode` | `WEIGHT`、`BIAS` 或 `BOTH`；預設為 `WEIGHT` |
 
 ### `&simulation`
 
@@ -352,7 +372,7 @@ tau     = lag_steps * dt
 
 ```text
 # global_node layer_id local_node bias_value
-785 1 1 0.050167959183454514
+785 2 1 0.050167959183454514
 ```
 
 - `global_node` 用來寫入 `bias(global_node)`；
@@ -427,9 +447,9 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 | `output/mean.csv` | `run_simulation=.true.` | 每個節點的 `<x>` 與 `<F>` |
 | `output/correlation.csv` | `run_simulation=.true.` | 完整模擬 `K0`、`Ktau` 與解析 `K0_theory` |
 | `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |
-| `output/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定 |
+| `output/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定、最大 eigenvalue real part，以及最小 signed weighted in/out-strength |
 | `output/shuffle_energetics.csv` | `n_weight_shuffles>0` | 每個 stable shuffle 的 total energetics |
-| `output/shuffle_summary.csv` | `n_weight_shuffles>0` | stable ensemble 的 entropy mean、sample std、range、percentile、z-score |
+| `output/shuffle_summary.csv` | `n_weight_shuffles>0` | trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
 
 一般輸出 (`node.csv`、`edge.csv`、`mean.csv`、`correlation.csv`、`energetics*.csv`) 第一行是文字標題、第二行才是欄名，因此 pandas 要使用：
 
@@ -446,19 +466,54 @@ df.columns = df.columns.str.strip()
 
 程式不會自動清除前一次 run 的其他檔案。因此 `EXTERNAL` 模式下既有的 `edge.csv`，以及 `run_simulation=.false.` 時既有的 simulation CSV，也可能是舊結果；應以本次設定的「產生條件」判斷哪些檔案有效。
 
-## Weight-shuffle ensemble
+## Shuffle ensemble
 
 設定 `n_weight_shuffles > 0` 後，程式會先完成原始網路理論，再執行 shuffled ensemble：
 
-1. 每次從相同的原始 `W` 開始；
-2. topology 與 edge 數保持固定，只用 Fisher–Yates algorithm 重排既有 edge weights；
-3. 所有 trial 共用原始 `r` 與 noise；
-4. 重新建構 `Q` 並檢查 stability；
-5. marginal/unstable trial 只寫入 stability output，跳過 Lyapunov 與 energetics；
-6. stable trial 才計算 covariance、alpha、total energetics；
-7. 以 Welford algorithm 線上計算 stable entropy ensemble 的 mean 與 sample standard deviation。
+1. 每次從相同的原始 `W` 與 bias 開始；
+2. `WEIGHT` 保持 topology 與 edge 數固定，只重排既有 edge weights；
+3. `BIAS` 在全網路所有節點間重排原有 bias，允許 bias 跨 layer 移動；
+4. `BOTH` 依序執行 weight 與 network-wide bias shuffle；
+5. 所有排列都使用 Fisher–Yates algorithm；
+6. 每次排列後先檢查 topology，以及 weight/bias 的總和、平方和、最小值、最大值與正負值數量；任何 invariant 不一致就立即停止；
+7. 所有 trial 共用原始 `r` 與 noise；
+8. DIFFUSIVE 直接重建 `Q`；TANH 則用 trial weights/bias 重新求 fixed point，再建立 Jacobian；
+9. 重新檢查 stability；
+10. marginal/unstable trial 只寫入 stability output，跳過 Lyapunov 與 energetics；
+11. stable trial 才計算 covariance、alpha、total energetics；
+12. 將每個 stable trial 的 total energetics 寫入 `shuffle_energetics.csv`，供 Python 統計與繪圖。
 
-目前 shuffle routine 只支援 `DIFFUSIVE` coupling，並要求原始 `Q` 是 upper 或 lower triangular，主要用於 feed-forward FCNN。若對一般 ER matrix 或 TANH coupling 設定 shuffle 次數大於零，程式會停止並提示此限制。
+每個 trial 另計算 signed weighted in-strength
+
+```text
+kappa_in(i) = sum_j W(i,j),
+```
+
+另外計算 signed weighted out-strength
+
+```text
+kappa_out(j) = sum_i W(i,j),
+```
+
+並將 `min_kappa_in`、`min_kappa_out` 與 stability 結果一起寫入
+`output/shuffle_stability.csv`。依照本專案的矩陣慣例，兩者分別是所有指向
+節點 `i` 與從節點 `j` 指出的 signed edge weights 總和，不使用 weight 絕對值。
+`stability_gap=-max_real_part` 不再重複輸出。原始網路的
+`original_min_kappa_in` 與 `original_min_kappa_out` 則寫入
+`output/shuffle_summary.csv`；原始網路已在 Lyapunov solver 中算出的
+`original_max_real_part` 也一併寫入，不會重複進行 eigendecomposition。這三個值
+可作為 histogram 的參考線。
+
+目前 shuffle ensemble 要求辨識成功的 upper/lower triangular FCNN。輸出 CSV
+格式不因 `shuffle_mode` 改變。全域 bias shuffle 保持整個網路的 bias multiset，
+但不保持各層的 bias distribution；原本沒有列在 bias 檔案中的零值也會一起參與
+排列。對 DIFFUSIVE 而言，bias 只改變固定點，不改變
+固定點中心化後的 `Q`、covariance 或 linearized energetics；因此 `BIAS` 模式的
+主要理論效果出現在 TANH dynamics。
+
+上述 distribution safety check 不建立額外 CSV。weight 只統計既有 edge 上的值，
+同時要求所有 non-edge matrix entries 維持不變；bias 則以全網路所有節點為比較
+範圍。全部 trial 通過後，終端機會顯示 `Shuffle safety checks = passed`。
 
 ## Python 分析與繪圖
 
@@ -480,6 +535,23 @@ python3 analysis/analyze_fcnn_inputs.py
 
 注意：`analyze_fcnn_inputs.py` 目前以絕對路徑選用 `input/mnistx6/`，切換 dataset 或移動專案後需先修改檔案頂部的 paths。
 
+分析 Fortran 輸出的 FCNN 逐節點／逐層理論 energetics：
+
+```bash
+python3 analysis/analyze_fcnn_energetics.py
+```
+
+這支程式讀取設定路徑下的 `energetics_theory_by_node_and_layer.csv`，以 1-based
+layer ID 將 input、hidden 與 output layers 分組。目前只分析 entropy production，
+計算每層的 total、per-node mean、sample standard deviation，以及每層占全網路
+total entropy 的 fraction/percentage；程式也會檢查 layer totals 與比例總和。
+圖片左側顯示各層占比，右側顯示各層 node-wise entropy production rate
+boxplot。圖片輸出為：
+
+```text
+figure/entropy_production_by_layer.png
+```
+
 `analysis/fcnn.py` 是另一個 FCNN 理論分析腳本，與 Fortran 主程式分開執行。
 
 ## 測試範圍
@@ -488,12 +560,17 @@ python3 analysis/analyze_fcnn_inputs.py
 
 - `AUTO` 對 external network 會選擇 `FILE`，並將 `input/mnistx2/bias.dat` 正確讀成 1306-node bias array 與 layer counts；
 - lower-triangular linear fixed point 的解與 residual；
+- `sigma_mean` 位於 `&dynamics` namelist，且後續 namelist groups 能正常讀取；
+- 1-based FCNN layer assignment、topology inference、非相鄰 edge rejection 與逐層 energetics output；
+- network-wide bias permutation，以及 TANH `BOTH` shuffle 的 fixed-point/Jacobian/Lyapunov/energetics 完整流程；
 - TANH damped-Newton solver 能找回已知固定點，且 fixed-point residual 符合 tolerance；
 - TANH Jacobian 的每一欄符合 centered finite difference，並確認 coupling dispatch 沒有改變 DIFFUSIVE `Q`；
-- DIFFUSIVE/TANH 共用的 fixed-point linearized `S/A` simulation 與 theory energetics；
+- DIFFUSIVE/TANH 共用的 fixed-point linearized `S/A` simulation/theory energetics，以及逐步 heat = work + internal-energy identity；
 - 固定 seed 下 random bias 的可重現性，以及 `AUTO` 對 generated network 會選擇 `RANDOM`。
 
-尚缺的重要測試包括 Lyapunov residual、解析 covariance、energetics identity，以及 external edge-list parser。研究結果使用前，建議逐步補齊這些 regression tests。
+尚缺的重要 unit tests 包括 Lyapunov residual 與解析 covariance 的已知小矩陣解、
+一般／三角 Lyapunov solver 的交叉比較，以及 external edge-list parser。研究結果
+使用前，建議逐步補齊這些 regression tests。
 
 ## 已知限制與後續工作
 

@@ -417,22 +417,24 @@ program main
 
     if (param%n_weight_shuffles > 0) then
 
-      if (trim(adjustl(param%coupling_type)) /= "DIFFUSIVE") then
-        error stop "Weight shuffling currently supports DIFFUSIVE coupling only"
+      if (.not. is_fcnn_network) then
+        error stop "Shuffle ensemble requires an FCNN topology"
       end if
 
       call run_shuffle_ensemble( &
-      adj_matrix, W, r, noise, &
+      adj_matrix, W, bias, &
+      r, noise, param%coupling_type, param%shuffle_mode, &
       q_is_upper, q_is_lower, &
       param%n_weight_shuffles, &
       param%shuffle_seed, &
-      sum(entropy_rate_theory), &
+      fixedpoint_tolerance, fixedpoint_max_iterations, &
+      sum(entropy_rate_theory), max_real_part, &
       "output/shuffle_stability.csv", &
       "output/shuffle_energetics.csv", &
       "output/shuffle_summary.csv")
 
       call record_wall_step( &
-        "Weight-shuffle ensemble", &
+        "Shuffle ensemble", &
         wall_step_start, wall_clock_rate)
 
     end if

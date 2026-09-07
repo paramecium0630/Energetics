@@ -19,6 +19,7 @@
     verify_lyapunov = .false.
     n_weight_shuffles = 0
     shuffle_seed = 10
+    shuffle_mode = "BOTH"
 /
 
 &simulation

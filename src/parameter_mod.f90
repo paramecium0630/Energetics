@@ -29,6 +29,7 @@ module parameter_mod
         logical :: verify_lyapunov
         integer :: n_weight_shuffles
         integer :: shuffle_seed
+        character(len=16) :: shuffle_mode
 
         ! Simulation
         logical :: run_simulation
@@ -73,6 +74,7 @@ contains
         logical :: verify_lyapunov
         integer :: n_weight_shuffles
         integer :: shuffle_seed
+        character(len=16) :: shuffle_mode
 
         real(dp) :: dt
         real(dp) :: t_relax
@@ -87,7 +89,8 @@ contains
                             bias_file, bias_mode, bias_mean, bias_std, &
                             coupling_type, sigma_mean
 
-        namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed
+        namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed, &
+                          shuffle_mode
 
         namelist /simulation/ run_simulation, dt, t_relax, t_sample, lag_steps, seed
 
@@ -113,6 +116,7 @@ contains
         verify_lyapunov = .true.
         n_weight_shuffles = 0
         shuffle_seed = 1001
+        shuffle_mode = "WEIGHT"
 
         run_simulation = .true.    
         dt          = 0.001_dp
@@ -170,6 +174,12 @@ contains
         if (n_weight_shuffles < 0) then
             error stop "n_weight_shuffles must be non-negative"
         end if
+        select case (trim(adjustl(shuffle_mode)))
+        case ("WEIGHT", "BIAS", "BOTH")
+            continue
+        case default
+            error stop "shuffle_mode must be WEIGHT, BIAS, or BOTH"
+        end select
         if (bias_std < 0.0_dp) then
             error stop "bias_std must be non-negative"
         end if
@@ -196,6 +206,7 @@ contains
         param%verify_lyapunov = verify_lyapunov
         param%n_weight_shuffles = n_weight_shuffles
         param%shuffle_seed = shuffle_seed
+        param%shuffle_mode = shuffle_mode
 
         param%run_simulation = run_simulation
         param%dt          = dt
