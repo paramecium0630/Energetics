@@ -80,6 +80,8 @@ layer_numbers = sorted(
     energetics["layer"].unique()
 )
 
+print(layer_numbers)
+
 last_layer = max(layer_numbers)
 first_layer = min(layer_numbers)
 

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
-output_dir = project_dir / "output" / "256x6"
+output_dir = project_dir / "output" 
 figure_dir = project_dir / "figure"
 figure_dir.mkdir(exist_ok=True)
 
