@@ -6,5 +6,6 @@ build/
 *.a
 *.so
 
+data/*
 output/*
 !output/.gitkeep
