@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 INPUT_FILE = (
     PROJECT_ROOT
-    / "output" / "256x6"
+    / "output" / "mnist100x1_self"
     / "energetics_theory_by_node_and_layer.csv"
 )
 

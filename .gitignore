@@ -9,3 +9,6 @@ build/
 data/*
 output/*
 !output/.gitkeep
+!output/shuffle/
+output/shuffle/*
+!output/shuffle/.gitkeep

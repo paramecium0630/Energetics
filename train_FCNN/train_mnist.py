@@ -1,4 +1,5 @@
 from pathlib import Path
+import csv
 import numpy as np
 import torch
 from torch import nn
@@ -7,10 +8,11 @@ from torch.utils.data import random_split
 from torchvision import datasets, transforms
 import onnx
 import onnxruntime as ort
+from plot_training import plot_training
 
 torch.manual_seed(1) # Set random seed for reproducibility
 
-output_dir = Path("output") # Create output directory if it doesn't exist
+output_dir = Path("train_output") # Create output directory if it doesn't exist
 output_dir.mkdir(exist_ok=True)
 
 # 1. 讀取資料
@@ -47,13 +49,11 @@ class FCNN(nn.Module):
         super().__init__()
         self.flatten = nn.Flatten() # 將 28x28 的影像展平為 784 維的向量
         self.fc1 = nn.Linear(784, 100) # 全連接層，輸入 784 維，輸出 256 維
-        # self.fc2 = nn.Linear(256, 256) # 全連接層，輸入 256 維，輸出 256 維
         self.fc2 = nn.Linear(100, 10) # 全連接層，輸入 256 維，輸出 10 維 (對應 10 個類別)
 
     def forward(self, x): # 定義前向傳播函數
         x = self.flatten(x) # 將影像展平為向量
         x = torch.relu(self.fc1(x)) # 使用 ReLU 激活函數
-        # x = torch.relu(self.fc2(x))
         return self.fc2(x)
 
 # 7. 建立模型、損失函數和優化器
@@ -62,24 +62,20 @@ print(f"使用裝置：{device}")
 model = FCNN().to(device)
 loss_fn = nn.CrossEntropyLoss()
 
-lr_max = 0.01
-epochs_per_cycle = 45
-num_cycles = 20
-epochs = epochs_per_cycle * num_cycles
-optimizer = torch.optim.SGD(model.parameters(), lr=lr_max)
+# 單次訓練；全程使用固定學習率。
+learning_rate = 0.02
+epochs = 50
+optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
 # 8. 訓練模型
-for epoch in range(epochs):
-    cycle_id = epoch // epochs_per_cycle
-    epoch_in_cycle = epoch % epochs_per_cycle
-    # epoch 從 0 開始；每個 epoch 固定 LR，cycle 邊界只重設 LR。
-    # 餘數為 0..44，因此最後一輪接近零但不取零。
-    lr = 0.5 * lr_max * (
-        1.0 + np.cos(np.pi * epoch_in_cycle / epochs_per_cycle)
+history = []
+history_path = output_dir / "training_history.csv"
+with history_path.open("w", newline="") as history_file:
+    csv.writer(history_file).writerow(
+        ["epoch", "train_loss", "val_loss", "val_accuracy"]
     )
-    for group in optimizer.param_groups:
-        group["lr"] = lr
 
+for epoch in range(epochs):
     model.train()
     train_loss_sum = 0.0
 
@@ -113,22 +109,29 @@ for epoch in range(epochs):
     val_loss = val_loss_sum / len(val_loader.dataset)
     val_accuracy = val_correct / len(val_loader.dataset)
 
+    record = [epoch + 1, train_loss, val_loss, val_accuracy]
+    history.append(record)
+    # 每輪寫入，訓練中斷時也能利用 CSV 重新畫圖。
+    with history_path.open("a", newline="") as history_file:
+        csv.writer(history_file).writerow(record)
+
     print(
-        f"Cycle {cycle_id + 1}/{num_cycles} | "
-        f"Epoch {epoch_in_cycle + 1}/{epochs_per_cycle} "
-        f"(global {epoch + 1}/{epochs}) | "
-        f"lr={lr:.6e} | "
+        f"Epoch {epoch + 1}/{epochs} | "
+        f"lr={learning_rate:.6e} | "
         f"train loss={train_loss:.4f} | "
         f"val loss={val_loss:.4f} | "
         f"val accuracy={val_accuracy:.2%}"
     )
 
-# SGD protocol 只保存訓練結束時的參數；validation 僅作監測。
+plot_training(history, output_dir / "training_curves.png")
+print(f"訓練曲線：{output_dir / 'training_curves.png'}")
+
+# 只保存訓練結束時的參數；validation 僅作監測。
 # 測試與 ONNX 匯出沿用這組最終權重。
 torch.save(model.state_dict(), output_dir / "final_fcnn.pth")
 print(f"儲存最終模型：Epoch {epochs}, val loss={val_loss:.4f}")
 
-# 將模型設為評估模式，這樣在測試時會關閉 dropout 和 batch normalization 等層的訓練行為
+# 將模型設為評估模式。
 model.eval() 
 correct = 0
 total = 0

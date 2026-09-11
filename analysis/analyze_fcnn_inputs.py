@@ -14,29 +14,15 @@ import pandas as pd
 
 
 # -----------------------------------------------------------------------------
-# 1. 設定輸入與輸出檔案的位置
+# 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-weight_file = Path(
-    "/home/para/Fortran/Energetics/input/mnistx2/weighted_matrix.dat"
-)
+directory = "input/mnist100x1_self"
 
-bias_file = Path(
-    "/home/para/Fortran/Energetics/input/mnistx2/bias.dat"
-)
+base_dir = Path("/home/para/Fortran/Energetics")
 
-weight_statistics_file = Path(
-    "/home/para/Fortran/Energetics/analysis/weight_statistics_by_layer.csv"
-)
-
-bias_statistics_file = Path(
-    "/home/para/Fortran/Energetics/analysis/bias_statistics_by_layer.csv"
-)
-
-figure_file = Path(
-    "/home/para/Fortran/Energetics/figure/fcnn_input_statistics.png"
-)
-
+weight_file = base_dir / directory / "weighted_matrix.dat"
+bias_file   = base_dir / directory / "bias.dat"
 
 # -----------------------------------------------------------------------------
 # 2. 讀取 weighted edge list
@@ -61,12 +47,14 @@ weights = pd.read_csv(
 if weights.empty:
     raise ValueError("The weight file does not contain any edge")
 
-missing_value_exists = weights.isna().any().any()
+missing_value_exists = weights.isna().any().any() # any:
+# print(weights.isna().any())
 
 if missing_value_exists:
     raise ValueError("The weight file contains missing values")
 
 all_weights_are_finite = np.isfinite(weights["weight"]).all()
+# print(np.isfinite(weights["weight"]).all())
 
 if not all_weights_are_finite:
     raise ValueError("The weight file contains inf or nan")
@@ -166,7 +154,6 @@ while len(unassigned_nodes) > 0:
         assigned_nodes.add(node)
         unassigned_nodes.remove(node)
 
-
 print()
 print("FCNN structure inferred from the weight topology")
 print("------------------------------------------------")
@@ -245,6 +232,7 @@ connection_pairs = connection_pairs.sort_values(
     by=["source_layer", "target_layer"]
 )
 
+
 statistics_rows = []
 weight_values_for_boxplot = []
 boxplot_labels = []
@@ -255,6 +243,7 @@ for connection in connection_pairs.itertuples(index=False):
 
     source_layer_matches = weights["source_layer"] == source_layer
     target_layer_matches = weights["target_layer"] == target_layer
+
     edge_is_in_this_connection = (
         source_layer_matches & target_layer_matches
     )
@@ -321,8 +310,6 @@ weight_summary_for_terminal = weight_statistics[
 
 print(weight_summary_for_terminal.to_string(index=False))
 
-weight_statistics_file.parent.mkdir(parents=True, exist_ok=True)
-weight_statistics.to_csv(weight_statistics_file, index=False)
 
 # -----------------------------------------------------------------------------
 # 12. 讀取 bias.dat
@@ -537,8 +524,6 @@ print(
     "default zeros",
 )
 
-bias_statistics_file.parent.mkdir(parents=True, exist_ok=True)
-bias_statistics.to_csv(bias_statistics_file, index=False)
 
 # -----------------------------------------------------------------------------
 # 17. 畫出 weight 與 bias 的基本圖形
@@ -578,7 +563,7 @@ weight_histogram_axis.text(
 # 不同 layer connections 的 weight boxplot。
 weight_boxplot_axis.boxplot(
     weight_values_for_boxplot,
-    labels=boxplot_labels,
+    tick_labels=boxplot_labels,
     showfliers=False,
 )
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -615,7 +600,7 @@ bias_histogram_axis.text(
 # 各 non-input topology layer 的完整 bias boxplot。
 bias_boxplot_axis.boxplot(
     bias_values_for_boxplot,
-    labels=bias_boxplot_labels,
+    tick_labels=bias_boxplot_labels,
     showfliers=False,
 )
 bias_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -626,14 +611,69 @@ bias_boxplot_axis.grid(alpha=0.25)
 
 
 figure.tight_layout()
-figure_file.parent.mkdir(parents=True, exist_ok=True)
-figure.savefig(figure_file, dpi=200)
 
-print()
-print("Saved files")
-print("-----------")
-print(weight_statistics_file)
-print(bias_statistics_file)
-print(figure_file)
+# -----------------------------------------------------------------------------
+# 18. 各層 Laplace 分布擬合（與 train_FCNN/extract_parameters.py 相同估計）
+# -----------------------------------------------------------------------------
+
+laplace_rows = []
+
+
+def plot_laplace_fit(values, parameter, layer_label):
+    """以平均值作中心，平均絕對偏差作尺度；不是自由位置的 Laplace MLE。"""
+    values = np.asarray(values, dtype=float)
+    mu = float(np.mean(values))
+    scale = float(np.mean(np.abs(values - mu)))
+    # 完全相同的浮點數，其 mean 仍可能有微小捨入差。
+    degenerate = bool(np.ptp(values) == 0 or scale <= 0)
+    if degenerate:
+        mu = float(values[0])
+        scale = 0.0
+    laplace_rows.append({
+        "parameter": parameter,
+        "layer": layer_label,
+        "count": values.size,
+        "method": "mean_centered",
+        "mu": mu,
+        "scale_b": scale,
+        "laplace_std": np.sqrt(2) * scale,
+        "status": "constant_no_fit" if degenerate else "ok",
+    })
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    fig.suptitle(f"{directory}: {parameter}, {layer_label} (N={values.size})")
+    for ax in axes:
+        ax.hist(values, bins=80, density=True, alpha=0.5, label="Data")
+        if degenerate:
+            ax.text(0.5, 0.8, "Constant data: no Laplace fit",
+                    transform=ax.transAxes, ha="center")
+        else:
+            x = np.sort(np.append(np.linspace(values.min(), values.max(), 1000), mu))
+            pdf = np.exp(-np.abs(x - mu) / scale) / (2 * scale)
+            ax.plot(x, pdf, color="red", linewidth=2,
+                    label=fr"Laplace: $\mu={mu:.4g},\ b={scale:.4g}$")
+        ax.set_xlabel(parameter.capitalize())
+        ax.set_ylabel("Probability density")
+        ax.grid(alpha=0.2)
+        ax.legend(fontsize=8)
+    axes[0].set_title("Linear scale")
+    axes[1].set_title("Logarithmic scale")
+    axes[1].set_yscale("log")
+    fig.tight_layout()
+
+
+for connection, values in zip(
+    connection_pairs.itertuples(index=False), weight_values_for_boxplot
+):
+    source, target = connection.source_layer, connection.target_layer
+    plot_laplace_fit(values, "weight", f"{source} -> {target}")
+
+# 不納入輸入層的預設零 bias；其餘層包含零值，與原有 boxplot 一致。
+for label, values in zip(bias_boxplot_labels, bias_values_for_boxplot):
+    plot_laplace_fit(values, "bias", label)
+
+laplace_statistics = pd.DataFrame(laplace_rows)
+print("Laplace fits (mean-centered; b is scale, not standard deviation)")
+print(laplace_statistics.to_string(index=False))
 
 plt.show()

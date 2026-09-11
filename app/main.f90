@@ -429,9 +429,9 @@ program main
       param%shuffle_seed, &
       fixedpoint_tolerance, fixedpoint_max_iterations, &
       sum(entropy_rate_theory), max_real_part, &
-      "output/shuffle_stability.csv", &
-      "output/shuffle_energetics.csv", &
-      "output/shuffle_summary.csv")
+      "output/shuffle/shuffle_stability.csv", &
+      "output/shuffle/shuffle_energetics.csv", &
+      "output/shuffle/shuffle_summary.csv")
 
       call record_wall_step( &
         "Shuffle ensemble", &

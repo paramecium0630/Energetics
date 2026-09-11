@@ -447,9 +447,9 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 | `output/mean.csv` | `run_simulation=.true.` | 每個節點的 `<x>` 與 `<F>` |
 | `output/correlation.csv` | `run_simulation=.true.` | 完整模擬 `K0`、`Ktau` 與解析 `K0_theory` |
 | `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |
-| `output/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定、最大 eigenvalue real part，以及最小 signed weighted in/out-strength |
-| `output/shuffle_energetics.csv` | `n_weight_shuffles>0` | 每個 stable shuffle 的 total energetics |
-| `output/shuffle_summary.csv` | `n_weight_shuffles>0` | trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
+| `output/shuffle/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定、最大 eigenvalue real part，以及最小 signed weighted in/out-strength |
+| `output/shuffle/shuffle_energetics.csv` | `n_weight_shuffles>0` | 每個 stable shuffle 的 total energetics |
+| `output/shuffle/shuffle_summary.csv` | `n_weight_shuffles>0` | trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
 
 一般輸出 (`node.csv`、`edge.csv`、`mean.csv`、`correlation.csv`、`energetics*.csv`) 第一行是文字標題、第二行才是欄名，因此 pandas 要使用：
 
@@ -461,6 +461,18 @@ df.columns = df.columns.str.strip()
 ```
 
 三個 `shuffle_*.csv` 第一行就是欄名，不使用 `skiprows=1`。
+
+`output/shuffle/` 只保存主程式當次執行產生的三個 shuffle CSV。若要封存不同
+network case，將它們放在該 case 自己的 `shuffle/` 子資料夾，例如：
+
+```text
+output/256x2/shuffle/
+output/256x4/shuffle/
+output/256x6/shuffle/
+```
+
+因此 `analysis/analyze_shuffle_ensemble.py` 預設分析的是 `output/shuffle/` 的
+當次結果；分析封存 case 時需將腳本的 input directory 指向相應 case。
 
 `output/Q.csv`、`output/correlation_theory.csv` 與 `output/alpha.csv` 目前不由主程式更新。若工作目錄留有這些檔案，它們可能是舊執行結果，不應當作本次 run 的輸出。
 
@@ -481,7 +493,7 @@ df.columns = df.columns.str.strip()
 9. 重新檢查 stability；
 10. marginal/unstable trial 只寫入 stability output，跳過 Lyapunov 與 energetics；
 11. stable trial 才計算 covariance、alpha、total energetics；
-12. 將每個 stable trial 的 total energetics 寫入 `shuffle_energetics.csv`，供 Python 統計與繪圖。
+12. 將每個 stable trial 的 total energetics 寫入 `output/shuffle/shuffle_energetics.csv`，供 Python 統計與繪圖。
 
 每個 trial 另計算 signed weighted in-strength
 
@@ -496,11 +508,11 @@ kappa_out(j) = sum_i W(i,j),
 ```
 
 並將 `min_kappa_in`、`min_kappa_out` 與 stability 結果一起寫入
-`output/shuffle_stability.csv`。依照本專案的矩陣慣例，兩者分別是所有指向
+`output/shuffle/shuffle_stability.csv`。依照本專案的矩陣慣例，兩者分別是所有指向
 節點 `i` 與從節點 `j` 指出的 signed edge weights 總和，不使用 weight 絕對值。
 `stability_gap=-max_real_part` 不再重複輸出。原始網路的
 `original_min_kappa_in` 與 `original_min_kappa_out` 則寫入
-`output/shuffle_summary.csv`；原始網路已在 Lyapunov solver 中算出的
+`output/shuffle/shuffle_summary.csv`；原始網路已在 Lyapunov solver 中算出的
 `original_max_real_part` 也一併寫入，不會重複進行 eigendecomposition。這三個值
 可作為 histogram 的參考線。
 

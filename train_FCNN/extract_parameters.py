@@ -7,36 +7,12 @@ from onnx import helper, numpy_helper
 
 # 路徑相對於此程式，從其他目錄執行也能找到模型。
 base_dir = Path(__file__).resolve().parent.parent
-file_name = "output/mnist_fcnn.onnx"
+file_name = "train_output/mnist_fcnn.onnx"
 model = onnx.load(base_dir / file_name)
 parameters = {
     tensor.name: numpy_helper.to_array(tensor)
     for tensor in model.graph.initializer
 }
-
-def weight_covariance(weight, ddof=1):
-    """weight[target, source]；回傳 row/column covariance 與非對角元素。"""
-    W = np.asarray(weight, dtype=np.float64)
-    if W.ndim != 2:
-        raise ValueError("weight 必須是二維矩陣")
-
-    m, n = W.shape
-    if ddof not in (0, 1) or min(m, n) <= ddof:
-        raise ValueError("樣本數不足，或 ddof 不是 0 / 1")
-
-    # 每個 row 減去自己的平均值。
-    row_centered = W - W.mean(axis=1, keepdims=True)
-    row_cov = row_centered @ row_centered.T / (n - ddof)
-
-    # 每個 column 減去自己的平均值。
-    col_centered = W - W.mean(axis=0, keepdims=True)
-    col_cov = col_centered.T @ col_centered / (m - ddof)
-
-    # covariance 矩陣對稱，只取上三角，不重複計算同一對。
-    row_offdiag = row_cov[np.triu_indices(m, k=1)]
-    col_offdiag = col_cov[np.triu_indices(n, k=1)]
-
-    return row_cov, col_cov, row_offdiag, col_offdiag
 
 # 按運算圖中的層順序取得 Gemm 參數，避免把 Reshape 常數當成權重。
 # 統一成 weight[目標神經元, 來源神經元]。
@@ -67,9 +43,8 @@ for node in model.graph.node:
 if not layers:
     raise ValueError("模型中找不到 Gemm 全連接層")
 
-# print(layers[0][0])
 
-output_dir = base_dir / "output/parameters"
+output_dir = base_dir / "output"
 output_dir.mkdir(parents=True, exist_ok=True)
 weight_path = output_dir / "weighted_matrix.dat"
 bias_path = output_dir / "bias.dat"
@@ -80,7 +55,7 @@ with weight_path.open("w") as weight_file, bias_path.open("w") as bias_file:
     bias_file.write("# global_node  layer_id  local_node  bias\n")
     for layer_id, (weight, bias) in enumerate(layers, start=2):
         values = weight.ravel()
-        row_cov, col_cov, row_off, col_off = weight_covariance(weight)
+        # row_cov, col_cov, row_off, col_off = weight_covariance(weight)
 
         # 每層分別估計 Laplace 參數
         mu = np.mean(values)
@@ -122,55 +97,6 @@ with weight_path.open("w") as weight_file, bias_path.open("w") as bias_file:
             axes_layer[1].set_yscale("log")
 
         fig_layer.tight_layout()
-
-        # fig, axes = plt.subplots(2, 2, figsize=(11, 8))
-        # fig.suptitle(f"Layer {layer_id}: weight shape = {weight.shape}")
-
-        # for col, (name, cov, off) in enumerate([
-        # ("Row", row_cov, row_off),
-        # ("Column", col_cov, col_off),
-        # ]):
-        # # 上排：完整 covariance matrix，包含對角線的 variance。
-        #     limit = np.max(np.abs(cov))
-        #     if limit == 0:
-        #         limit = 1.0
-
-        #     im = axes[0, col].imshow(
-        #         cov,
-        #         cmap="RdBu_r",
-        #         vmin=-limit,
-        #         vmax=limit,
-        #         origin="lower",
-        #         interpolation="nearest",
-        #     )
-        #     axes[0, col].set_title(f"{name} covariance")
-        #     axes[0, col].set_xlabel(f"{name} index (0-based)")
-        #     axes[0, col].set_ylabel(f"{name} index (0-based)")
-        #     fig.colorbar(im, ax=axes[0, col], label="Covariance")
-
-        #     # 下排：非對角 covariance，僅取上三角以避免重複。
-        #     ax = axes[1, col]
-        #     if off.size:
-        #         ax.hist(off, bins=50, edgecolor="black", linewidth=0.4)
-        #         ax.axvline(0, color="black", linestyle="--", linewidth=1)
-        #         ax.axvline(
-        #         off.mean(),
-        #         color="red",
-        #         linewidth=1.5,
-        #         label=f"Mean = {off.mean():.3e}",
-        #         )
-        #         ax.legend()
-        #     else:
-        #         ax.text(
-        #         0.5, 0.5, "No off-diagonal entries",
-        #         ha="center", va="center", transform=ax.transAxes,
-        #         )
-
-        #     ax.set_title(f"{name} off-diagonal covariance")
-        #     ax.set_xlabel("Covariance")
-        #     ax.set_ylabel("Pair count")
-
-        #     fig.tight_layout()
 
         n_out, n_in = weight.shape
         target_offset = source_offset + n_in

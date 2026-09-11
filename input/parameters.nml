@@ -4,15 +4,15 @@
     directed   = .false.
     graph_type = "EXTERNAL"
     p          = 0.2
-    network_file = "input/mnistx2_self/weighted_matrix.dat"
+    network_file = "input/mnist100x1_self/weighted_matrix.dat"
 /
 
 &dynamics
-    bias_file   = "input/mnistx2_self/bias.dat"
+    bias_file   = "input/mnist100x1_self/bias.dat"
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0
-    r_mean     = 18.0
+    r_mean     = 7.0
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
