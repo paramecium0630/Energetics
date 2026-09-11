@@ -69,6 +69,33 @@ d(delta_x) = Q delta_x dt + noise.
 
 穩態存在的必要條件是 `Q` 為 Hurwitz stable，也就是所有 eigenvalue 的實部都小於零。
 
+### Linear source coupling
+
+設定 `coupling_type = "LINEAR"` 使用 `h(x_i,x_j)=x_j`：
+
+```text
+F(x) = -R x + bias + W x,
+Q = -R + W,
+Q x* = -bias.
+```
+
+此模式的 covariance 與 S/A energetics 理論是精確的線性穩態結果。
+一般網路必須確認 Q 的特徵值實部皆為負；無 self-loop 的 feed-forward
+FCNN 則只需每個 r_i > 0。支援現有 WEIGHT、BIAS、BOTH shuffle，
+其中 bias permutation 不改變 Q 或穩態理論 energetics。
+
+### TANH applied to summed inputs
+
+設定 `coupling_type = "TANH_INPUT"` 使用
+`F(x) = -R*x + tanh(W*x + bias)`。Bias 在 tanh 裡。
+先以 damped Newton 求固定點 x*，再計算 u*=W*x*+bias，
+Jacobian 為 Q=-R+D*W，其中 D_ii=sech(u_i*)^2（按列縮放）。
+無 self-loop 時 Q_ii=-r_i。此模式支援 WEIGHT、BIAS、BOTH shuffle，
+每次重新求 trial 固定點及 Jacobian。
+軌跡使用完整非線性力；simulation/theory energetics 沿用固定點
+Jacobian 的 S/A 分解，因此仍是線性化 energetics。
+CSV、layer mapping 及 Python 圖的格式不變。
+
 ### Nonlinear TANH dynamics
 
 TANH coupling 使用
@@ -289,7 +316,7 @@ fpm test --profile debug \
 | `r_std` | 已保留但目前未套用到 `r` |
 | `weight_mean` | ER 與程式內 FCNN weight 的平均值 |
 | `weight_std` | ER 與程式內 FCNN weight 的標準差 |
-| `coupling_type` | `DIFFUSIVE` 或 `TANH` |
+| `coupling_type` | `DIFFUSIVE`、`LINEAR`、`TANH` 或 `TANH_INPUT` |
 | `bias_mode` | `AUTO`、`ZERO`、`RANDOM` 或 `FILE` |
 | `bias_file` | `FILE` 模式讀取的 bias data 路徑 |
 | `bias_mean` | random bias 的平均值 |

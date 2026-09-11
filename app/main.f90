@@ -180,18 +180,18 @@ program main
 
     select case (trim(adjustl(param%coupling_type)))
 
-    case ("DIFFUSIVE")
+    case ("DIFFUSIVE", "LINEAR")
 
       call construct_Q(r, W, param%coupling_type, Q)
 
-    case ("TANH")
+    case ("TANH", "TANH_INPUT")
 
-      call solve_fixed_point_tanh( &
-        r, W, bias, fixpoint, &
+      call solve_fixed_point_nonlinear( &
+        r, W, bias, param%coupling_type, fixpoint, &
         fixedpoint_tolerance, fixedpoint_max_iterations)
 
       call construct_Q( &
-        r, W, param%coupling_type, Q, fixpoint)
+        r, W, param%coupling_type, Q, fixpoint, bias)
 
     case default
 
@@ -208,7 +208,8 @@ program main
     print *, "Q is upper triangular =", q_is_upper
     print *, "Q is lower triangular =", q_is_lower
 
-    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE" .or. &
+        trim(adjustl(param%coupling_type)) == "LINEAR") then
 
       call solve_fixed_point_linear( &
         Q, bias, &
@@ -230,7 +231,8 @@ program main
     max_force_at_fixedpoint = &
     maxval(abs(force_at_fixedpoint))   
 
-    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE" .or. &
+        trim(adjustl(param%coupling_type)) == "LINEAR") then
       max_fixedpoint_residual = &
         maxval(abs(matmul(Q, fixpoint) + bias))
     else
@@ -240,7 +242,8 @@ program main
     print *, "-------------------------------"
     print *, "Fixed-point verification"
     print *, "-------------------------------"
-    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE") then
+    if (trim(adjustl(param%coupling_type)) == "DIFFUSIVE" .or. &
+        trim(adjustl(param%coupling_type)) == "LINEAR") then
       print *, "max |Q*x* + bias| =", max_fixedpoint_residual
     end if
     print *, "max |F(x*)| =", max_force_at_fixedpoint

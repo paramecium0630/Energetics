@@ -2,7 +2,7 @@
     ! N and directed are overridden by FCNN/EXTERNAL where applicable.
     N          = 70
     directed   = .false.
-    graph_type = "EXTERNAL"
+    graph_type = "FCNN"
     p          = 0.2
     network_file = "input/mnist100x1_self/weighted_matrix.dat"
 /
@@ -12,11 +12,11 @@
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0
-    r_mean     = 7.0
+    r_mean     = 10.0
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
-    coupling_type = "DIFFUSIVE"
+    coupling_type = "TANH_INPUT"
     sigma_mean = 0.1
 /
 
@@ -28,7 +28,7 @@
 /
 
 &simulation
-    run_simulation = .false.
+    run_simulation = .true.
     dt       = 0.0005
     t_relax  = 10.0
     t_sample = 5000.0

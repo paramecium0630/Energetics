@@ -536,7 +536,19 @@ contains
     subroutine solve_fixed_point_tanh( &
     r, W, bias, fixpoint, tolerance, max_iterations)
 
+    ! Compatibility wrapper for existing callers.
+    real(dp), intent(in) :: r(:), W(:,:), bias(:), tolerance
+    real(dp), intent(out) :: fixpoint(:)
+    integer, intent(in) :: max_iterations
+    call solve_fixed_point_nonlinear(r, W, bias, "TANH", &
+        fixpoint, tolerance, max_iterations)
+    end subroutine solve_fixed_point_tanh
+
+    subroutine solve_fixed_point_nonlinear( &
+    r, W, bias, coupling_type, fixpoint, tolerance, max_iterations)
+
     real(dp), intent(in) :: r(:)
+    character(len=*), intent(in) :: coupling_type
     real(dp), intent(in) :: W(:, :)
     real(dp), intent(in) :: bias(:)
     real(dp), intent(out) :: fixpoint(:)
@@ -571,6 +583,8 @@ contains
     external :: dgesv
     external :: dtrsv
 
+    if (trim(coupling_type) /= "TANH" .and. trim(coupling_type) /= "TANH_INPUT") &
+        error stop "Unsupported nonlinear fixed-point coupling"
     n = size(r)
 
     if (n <= 0) then
@@ -610,6 +624,7 @@ contains
     do i = 1, n
         if (abs(r(i)) > small_r) then
             fixpoint(i) = bias(i) / r(i)
+            if (trim(coupling_type) == "TANH_INPUT") fixpoint(i) = tanh(bias(i)) / r(i)
         else
             fixpoint(i) = 0.0_dp
         end if
@@ -618,7 +633,7 @@ contains
     do iteration = 1, max_iterations
 
         call compute_force( &
-            fixpoint, r, W, bias, "TANH", force)
+            fixpoint, r, W, bias, coupling_type, force)
 
         residual = maxval(abs(force))
 
@@ -626,7 +641,7 @@ contains
 
         ! Newton equation: J(x) * correction = -F(x).
         call construct_Q( &
-            r, W, "TANH", jacobian_work, fixpoint)
+            r, W, coupling_type, jacobian_work, fixpoint, bias)
 
         correction = -force
 
@@ -682,7 +697,7 @@ contains
             trial_state = fixpoint + damping * correction
 
             call compute_force( &
-                trial_state, r, W, bias, "TANH", force_trial)
+                trial_state, r, W, bias, coupling_type, force_trial)
 
             trial_residual = maxval(abs(force_trial))
 
@@ -707,7 +722,7 @@ contains
     end do
 
     call compute_force( &
-        fixpoint, r, W, bias, "TANH", force)
+        fixpoint, r, W, bias, coupling_type, force)
 
     residual = maxval(abs(force))
 
@@ -719,7 +734,7 @@ contains
     error stop "TANH fixed-point solver did not converge"
 
 
-    end subroutine solve_fixed_point_tanh
+    end subroutine solve_fixed_point_nonlinear
 
     subroutine compute_lyapunov_residual(Q, K, noise, q_is_upper, &
                                          q_is_lower, max_residual)

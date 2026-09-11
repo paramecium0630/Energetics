@@ -6,7 +6,7 @@ module langevin_mod
 
 contains
 
-    subroutine construct_Q(r, W, coupling_type, Q, linearization_state)
+    subroutine construct_Q(r, W, coupling_type, Q, linearization_state, bias)
         ! Construct the linear dynamics matrix/Jacobian.
         integer :: i, j, n
         real(dp), intent(in) :: r(:)
@@ -14,6 +14,8 @@ contains
         character(len=*), intent(in) :: coupling_type
         real(dp), allocatable, intent(out) :: Q(:,:)
         real(dp), intent(in), optional :: linearization_state(:)
+        real(dp), intent(in), optional :: bias(:)
+        real(dp), allocatable :: u_star(:)
 
         n = size(r)
 
@@ -34,6 +36,25 @@ contains
 
             do i = 1, n
                 Q(i, i) = -r(i) - sum(W(i, :)) + W(i, i)
+            end do
+
+        case ("LINEAR")
+
+            ! h(x_i,x_j) = x_j, so Q = -R + W.
+            Q = W
+            do i = 1, n
+                Q(i, i) = Q(i, i) - r(i)
+            end do
+
+        case ("TANH_INPUT")
+            if (.not. present(linearization_state)) error stop "TANH_INPUT requires state"
+            if (.not. present(bias)) error stop "TANH_INPUT requires bias"
+            if (size(linearization_state) /= n .or. size(bias) /= n) &
+                error stop "TANH_INPUT Jacobian size mismatch"
+            u_star = matmul(W, linearization_state) + bias
+            do i = 1, n
+                Q(i,:) = (1.0_dp - tanh(u_star(i))**2) * W(i,:)
+                Q(i,i) = Q(i,i) - r(i)
             end do
 
         case ("TANH")
@@ -128,6 +149,14 @@ contains
                     W(i, j) * source_value
                 end do
             end do
+
+        case ("LINEAR")
+
+            force = force + matmul(W, x)
+
+        case ("TANH_INPUT")
+
+            force = -r * x + tanh(matmul(W, x) + bias)
 
         case default
 

@@ -5,7 +5,7 @@ module shuffle_mod
     use langevin_mod, only : construct_Q
     use theory_mod, only : &
         solve_lyapunov_triangular_blocked, &
-        solve_fixed_point_tanh, &
+        solve_fixed_point_nonlinear, &
         analytic_result, &
         compute_energetics_theory
 
@@ -133,7 +133,7 @@ contains
     end select
 
     select case (trim(adjustl(coupling_type)))
-    case ("DIFFUSIVE", "TANH")
+    case ("DIFFUSIVE", "LINEAR", "TANH", "TANH_INPUT")
         continue
     case default
         error stop "Unsupported coupling type in shuffle ensemble"
@@ -258,14 +258,14 @@ contains
     ! 所有 shuffle 使用相同的 r 與 noise。TANH 必須先用 trial
     ! weights/bias 解新固定點，再於該固定點建立 Jacobian。
     select case (trim(adjustl(coupling_type)))
-    case ("DIFFUSIVE")
-        call construct_Q(r, W_trial, "DIFFUSIVE", Q_trial)
-    case ("TANH")
-        call solve_fixed_point_tanh( &
-            r, W_trial, bias_trial, fixpoint_trial, &
+    case ("DIFFUSIVE", "LINEAR")
+        call construct_Q(r, W_trial, coupling_type, Q_trial)
+    case ("TANH", "TANH_INPUT")
+        call solve_fixed_point_nonlinear( &
+            r, W_trial, bias_trial, coupling_type, fixpoint_trial, &
             fixedpoint_tolerance, fixedpoint_max_iterations)
         call construct_Q( &
-            r, W_trial, "TANH", Q_trial, fixpoint_trial)
+            r, W_trial, coupling_type, Q_trial, fixpoint_trial, bias_trial)
     end select
 
     ! FCNN Q 是 triangular，所以 eigenvalues 是 diagonal
