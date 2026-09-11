@@ -61,14 +61,25 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"使用裝置：{device}")
 model = FCNN().to(device)
 loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-epochs = 45
 
-best_val_loss = float("inf")
-best_epoch = 0
+lr_max = 0.01
+epochs_per_cycle = 45
+num_cycles = 20
+epochs = epochs_per_cycle * num_cycles
+optimizer = torch.optim.SGD(model.parameters(), lr=lr_max)
 
 # 8. 訓練模型
 for epoch in range(epochs):
+    cycle_id = epoch // epochs_per_cycle
+    epoch_in_cycle = epoch % epochs_per_cycle
+    # epoch 從 0 開始；每個 epoch 固定 LR，cycle 邊界只重設 LR。
+    # 餘數為 0..44，因此最後一輪接近零但不取零。
+    lr = 0.5 * lr_max * (
+        1.0 + np.cos(np.pi * epoch_in_cycle / epochs_per_cycle)
+    )
+    for group in optimizer.param_groups:
+        group["lr"] = lr
+
     model.train()
     train_loss_sum = 0.0
 
@@ -103,23 +114,19 @@ for epoch in range(epochs):
     val_accuracy = val_correct / len(val_loader.dataset)
 
     print(
-        f"Epoch {epoch + 1}/{epochs} | "
+        f"Cycle {cycle_id + 1}/{num_cycles} | "
+        f"Epoch {epoch_in_cycle + 1}/{epochs_per_cycle} "
+        f"(global {epoch + 1}/{epochs}) | "
+        f"lr={lr:.6e} | "
         f"train loss={train_loss:.4f} | "
         f"val loss={val_loss:.4f} | "
         f"val accuracy={val_accuracy:.2%}"
     )
 
-    # 以驗證 loss 選模型，測試集保留到最後才評估。
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        best_epoch = epoch + 1
-        torch.save(model.state_dict(), output_dir / "best_fcnn.pth")
-
-# 測試與 ONNX 匯出都使用驗證 loss 最低的權重。
-model.load_state_dict(
-    torch.load(output_dir / "best_fcnn.pth", map_location=device, weights_only=True)
-)
-print(f"載入最佳模型：Epoch {best_epoch}, val loss={best_val_loss:.4f}")
+# SGD protocol 只保存訓練結束時的參數；validation 僅作監測。
+# 測試與 ONNX 匯出沿用這組最終權重。
+torch.save(model.state_dict(), output_dir / "final_fcnn.pth")
+print(f"儲存最終模型：Epoch {epochs}, val loss={val_loss:.4f}")
 
 # 將模型設為評估模式，這樣在測試時會關閉 dropout 和 batch normalization 等層的訓練行為
 model.eval() 
@@ -136,7 +143,6 @@ with torch.no_grad(): # 在測試時不需要計算梯度，節省記憶體和�
 
 print(f"Test accuracy = {100 * correct / total:.2f}%")
 
-# torch.save(model.state_dict(), output_dir / "mnist_fcnn.pth")
 # 匯出與 ONNX Runtime 比對都在 CPU 上進行。
 model = model.cpu()
 example_input = torch.zeros(1, 1, 28, 28)
