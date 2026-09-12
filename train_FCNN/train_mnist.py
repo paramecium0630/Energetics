@@ -48,13 +48,15 @@ class FCNN(nn.Module):
     def __init__(self): # 定義神經網路的結構
         super().__init__()
         self.flatten = nn.Flatten() # 將 28x28 的影像展平為 784 維的向量
-        self.fc1 = nn.Linear(784, 100) # 全連接層，輸入 784 維，輸出 256 維
-        self.fc2 = nn.Linear(100, 10) # 全連接層，輸入 256 維，輸出 10 維 (對應 10 個類別)
+        self.fc1 = nn.Linear(784, 256) # 全連接層，輸入 784 維，輸出 256 維
+        self.fc2 = nn.Linear(256, 256) # 全連接層，輸入 256 維，輸出 10 維 (對應 10 個類別)
+        self.fc3 = nn.Linear(256, 10) # 全連接層，輸入 256 維，輸出 10 維 (對應 10 個類別)
 
     def forward(self, x): # 定義前向傳播函數
         x = self.flatten(x) # 將影像展平為向量
         x = torch.relu(self.fc1(x)) # 使用 ReLU 激活函數
-        return self.fc2(x)
+        x = torch.relu(self.fc2(x)) # 使用 ReLU 激活函數
+        return self.fc3(x)
 
 # 7. 建立模型、損失函數和優化器
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
