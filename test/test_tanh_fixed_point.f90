@@ -1,7 +1,7 @@
 program test_tanh_fixed_point
     use precision_mod
     use langevin_mod, only : compute_force, construct_Q
-    use theory_mod, only : solve_fixed_point_tanh
+    use theory_mod, only : solve_fixed_point_nonlinear
     implicit none
 
     integer, parameter :: n = 3
@@ -33,8 +33,8 @@ program test_tanh_fixed_point
     ! Choose bias so that expected_fixpoint is an exact TANH fixed point.
     bias = r * expected_fixpoint - matmul(W, tanh(expected_fixpoint))
 
-    call solve_fixed_point_tanh( &
-        r, W, bias, computed_fixpoint, &
+    call solve_fixed_point_nonlinear( &
+        r, W, bias, "TANH", computed_fixpoint, &
         1.0e-12_dp, 100)
 
     if (maxval(abs(computed_fixpoint - expected_fixpoint)) > &
@@ -83,8 +83,8 @@ program test_tanh_fixed_point
     expected_fixpoint = [0.10_dp, -0.20_dp, 0.15_dp]
     bias = r * expected_fixpoint - matmul(W, tanh(expected_fixpoint))
 
-    call solve_fixed_point_tanh( &
-        r, W, bias, computed_fixpoint, &
+    call solve_fixed_point_nonlinear( &
+        r, W, bias, "TANH", computed_fixpoint, &
         1.0e-12_dp, 100)
 
     if (maxval(abs(computed_fixpoint - expected_fixpoint)) > &

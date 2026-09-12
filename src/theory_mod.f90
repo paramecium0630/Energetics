@@ -533,17 +533,6 @@ contains
 
     end subroutine solve_fixed_point_linear 
 
-    subroutine solve_fixed_point_tanh( &
-    r, W, bias, fixpoint, tolerance, max_iterations)
-
-    ! Compatibility wrapper for existing callers.
-    real(dp), intent(in) :: r(:), W(:,:), bias(:), tolerance
-    real(dp), intent(out) :: fixpoint(:)
-    integer, intent(in) :: max_iterations
-    call solve_fixed_point_nonlinear(r, W, bias, "TANH", &
-        fixpoint, tolerance, max_iterations)
-    end subroutine solve_fixed_point_tanh
-
     subroutine solve_fixed_point_nonlinear( &
     r, W, bias, coupling_type, fixpoint, tolerance, max_iterations)
 

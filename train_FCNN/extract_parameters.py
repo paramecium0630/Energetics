@@ -43,11 +43,11 @@ for node in model.graph.node:
 if not layers:
     raise ValueError("模型中找不到 Gemm 全連接層")
 
-
+input_dir = base_dir / "input"
 output_dir = base_dir / "output"
 output_dir.mkdir(parents=True, exist_ok=True)
-weight_path = output_dir / "weighted_matrix.dat"
-bias_path = output_dir / "bias.dat"
+weight_path = input_dir / "weighted_matrix.dat"
+bias_path = input_dir / "bias.dat"
 
 # 輸入層為第 1 層，節點從 1 開始；後續各層接續編號。
 source_offset = 0
