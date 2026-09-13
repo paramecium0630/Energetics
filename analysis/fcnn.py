@@ -1,6 +1,10 @@
 import numpy as np
+from pathlib import Path
 from scipy.linalg import solve_sylvester
 import matplotlib.pyplot as plt
+
+current_dir = Path(__file__).resolve().parent
+parent_dir = current_dir.parent
 
 # Model parameters -----------------------------------------------------------
 # Array index l corresponds to the layer number ell = l + 1 in FCNN.pdf.
@@ -14,12 +18,16 @@ r = np.array([1.0, 1.0, 1.0, 1.0], dtype=float)
 
 # Diagonal noise covariance (noise intensity): sigma_1, ..., sigma_L
 # The stochastic increment uses sqrt(sigma), not sigma, as its amplitude.
-sigma = np.array([0.01, 0.01, 0.01, 0.01], dtype=float)
+sigma = np.array([1.0, 1.0, 1.0, 1.0], dtype=float)
 
 # Adjacent-layer connection weights.
 # w[ell - 1] = w_ell connects layer ell - 1 to layer ell for ell >= 2.
 # w[0] is zero because layer 1 has no incoming connection.
 w = np.array([0.0, 1.0, 1.0, 1.0], dtype=float)
+
+# Coupling model: "diffusive" for sum_j W_ij (x_j - x_i),
+#                 "linear"    for sum_j W_ij x_j.
+coupling_type = "linear"
 
 def validate_parameters() -> None:
     """Check that the layer-level FCNN parameters are self-consistent."""
@@ -39,16 +47,23 @@ def validate_parameters() -> None:
         raise ValueError("Every noise intensity in sigma must be non-negative")
     if w[0] != 0.0:
         raise ValueError("w[0] must be zero because layer 1 has no input layer")
+    if coupling_type not in {"diffusive", "linear"}:
+        raise ValueError("coupling_type must be 'diffusive' or 'linear'")
     if not all(np.all(np.isfinite(values)) for values in (r, sigma, w)):
         raise ValueError("r, sigma, and w must contain only finite values")
 
 validate_parameters()
 
-def calculate_exact_energetics(N, r, sigma, w):
+def calculate_exact_energetics(N, r, sigma, w, coupling_type="diffusive"):
     L = N.size
 
-    lam = -r.copy()
-    lam[1:] -= N[:-1] * w[1:]
+    if coupling_type == "diffusive":
+        lam = -r.copy()
+        lam[1:] -= N[:-1] * w[1:]
+    elif coupling_type == "linear":
+        lam = -r.copy()
+    else:
+        raise ValueError("coupling_type must be 'diffusive' or 'linear'")
 
     b = np.zeros(L, dtype=float)
     b[1:] = N[:-1] * w[1:]
@@ -109,7 +124,7 @@ def calculate_exact_energetics(N, r, sigma, w):
 # axes.set_xlabel(rf"Layer", fontsize=16)
 # axes.set_ylabel(r"Entropy rate per node", fontsize=16)
 
-target_layer = 1
+target_layer = 1  # Index of the layer to vary (0-based index for layer 1)
 node_counts = np.arange(10, 160, 10)
 
 heat_total = np.zeros((node_counts.size, L))
@@ -130,10 +145,11 @@ for i, node_count in enumerate(node_counts):
         r,
         sigma,
         w,
+        coupling_type=coupling_type,
     )
 
-    # heat_total[i] = result["heat"]
-    # heat_per_node[i] = result["heat"] / N_test
+    heat_total[i] = result["heat"]
+    heat_per_node[i] = result["heat"] / N_test
     entropy_total[i] = result["entropy"]
     entropy_per_node[i] = result["entropy"] / N_test
     work_total[i] = result["work"]
@@ -142,18 +158,29 @@ for i, node_count in enumerate(node_counts):
     # print(node_count, heat_total[i])
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+markers = ("o", "s", "^", "D", "v", "P", "X")
 
 for l in range(L):
     axes[0].plot(
         node_counts,
         entropy_total[:, l],
         label=f"layer {l + 1}",
+        linestyle="-",
+        linewidth=1.5,
+        marker=markers[l % len(markers)],
+        markersize=5,
+        markerfacecolor="white",
     )
 
     axes[1].plot(
         node_counts,
         entropy_per_node[:, l],
         label=f"layer {l + 1}",
+        linestyle="-",
+        linewidth=1.5,
+        marker=markers[l % len(markers)],
+        markersize=5,
+        markerfacecolor="white",
     )
 
 axes[0].set_xlabel(rf"$N_{{{target_layer + 1}}}$", fontsize=16)
@@ -162,10 +189,10 @@ axes[0].legend()
 axes[0].grid(alpha=0.3)
 
 axes[1].set_xlabel(rf"$N_{{{target_layer + 1}}}$", fontsize=16)
-axes[1].set_ylabel(r"$\langle \dot{s} \rangle_\ell$ per node", fontsize=16)
+axes[1].set_ylabel(r"$\langle \dot{s} \rangle_\ell$", fontsize=16)
 axes[1].legend()
 axes[1].grid(alpha=0.3)
 
 fig.tight_layout()
-plt.savefig('figure/entropy_N1.eps', format='eps')
+plt.savefig(parent_dir / 'figure' / 'entropy_N1.eps', format='eps')
 plt.show()
