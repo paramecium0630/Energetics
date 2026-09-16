@@ -284,6 +284,11 @@ program main
 
     end if
 
+    print *, "-------------------------------"
+    print *, "Stability of original Q"
+    print *, "-------------------------------"
+    print *, "max Re(lambda(Q)) =", max_real_part
+
     call analytic_result(Q, noise, K0_theory, alpha, &
                          q_is_upper, q_is_lower)
     call record_wall_step("Compute theory alpha", &
@@ -427,6 +432,7 @@ program main
       call run_shuffle_ensemble( &
       adj_matrix, W, bias, &
       r, noise, param%coupling_type, param%shuffle_mode, &
+      param%network_file, param%bias_file, &
       q_is_upper, q_is_lower, &
       param%n_weight_shuffles, &
       param%shuffle_seed, &

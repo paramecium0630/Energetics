@@ -16,6 +16,8 @@ program test_shuffle_ensemble
     logical :: file_exists
     integer :: i, io_unit, io_status, shuffle_id
     character(len=16) :: status_label
+    character(len=16) :: summary_coupling, summary_shuffle_mode
+    character(len=64) :: summary_network_file, summary_bias_file
     character(len=256) :: header
     real(dp) :: W(n, n), bias(n), shuffled_bias(n)
     real(dp) :: r(n), noise(n, n)
@@ -59,6 +61,7 @@ program test_shuffle_ensemble
     call run_shuffle_ensemble( &
         adjacency, W, bias, &
         r, noise, "TANH", "BOTH", &
+        "test_network.dat", "test_bias.dat", &
         .false., .true., 2, 2718, &
         1.0e-12_dp, 100, 0.0_dp, -2.0_dp, &
         stability_file, energetics_file, summary_file)
@@ -102,6 +105,7 @@ program test_shuffle_ensemble
 
     read(io_unit, '(A)', iostat=io_status) header
     if (io_status /= 0 .or. trim(header) /= &
+        "coupling_type,shuffle_mode,network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
         "original_min_kappa_out,original_max_real_part") then
@@ -109,10 +113,18 @@ program test_shuffle_ensemble
     end if
 
     read(io_unit, *, iostat=io_status) &
+        summary_coupling, summary_shuffle_mode, &
+        summary_network_file, summary_bias_file, &
         n_requested, n_stable, n_marginal, n_unstable, &
         original_entropy, original_min_kappa_in, &
         original_min_kappa_out, original_max_real_part
     if (io_status /= 0) error stop "Cannot parse shuffle summary row"
+    if (trim(summary_coupling) /= "TANH" .or. &
+        trim(summary_shuffle_mode) /= "BOTH" .or. &
+        trim(summary_network_file) /= "test_network.dat" .or. &
+        trim(summary_bias_file) /= "test_bias.dat") then
+        error stop "Incorrect shuffle summary metadata"
+    end if
     if (n_requested /= 2 .or. n_stable /= 2 .or. &
         n_marginal /= 0 .or. n_unstable /= 0) then
         error stop "Incorrect shuffle summary counts"

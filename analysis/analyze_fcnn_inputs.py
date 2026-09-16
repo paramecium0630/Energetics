@@ -17,7 +17,7 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-directory = "input/mnist100x1_self"
+directory = "input/mnist256x1_self"
 
 base_dir = Path("/home/para/Fortran/Energetics")
 
@@ -214,7 +214,75 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# 10. 準備所有 weights 的繪圖資料
+# 10. 計算每個節點的 weighted in-strength 與 out-strength
+# -----------------------------------------------------------------------------
+
+# weighted_matrix.dat 使用 W(target, source) 的索引順序，因此一筆資料
+# (target=i, source=j, weight=W_ij) 代表有向邊 j -> i。
+#
+# kappa_in(i)  = sum_j W(i, j)：固定 target=i，將所有流入 i 的權重相加。
+# kappa_out(i) = sum_j W(j, i)：固定 source=i，將所有由 i 流出的權重相加。
+# 這裡保留權重的正負號；它們是 signed weighted strengths，不是 degree，
+# 也不是 sum(abs(weight))。
+kappa_in_by_node = weights.groupby("target")["weight"].sum()
+kappa_out_by_node = weights.groupby("source")["weight"].sum()
+
+# groupby 只會產生至少有一條對應 edge 的節點。建立包含所有節點的表格，
+# 再把 input nodes 缺少的 kappa_in、output nodes 缺少的 kappa_out 補成 0。
+sorted_nodes = sorted(all_nodes)
+node_strengths = pd.DataFrame(
+    {
+        "node": sorted_nodes,
+        "layer": [node_to_layer[node] for node in sorted_nodes],
+    }
+)
+
+node_strengths["kappa_in"] = (
+    node_strengths["node"].map(kappa_in_by_node).fillna(0.0)
+)
+node_strengths["kappa_out"] = (
+    node_strengths["node"].map(kappa_out_by_node).fillna(0.0)
+)
+
+# 每一條 edge 都會在 total kappa_in 與 total kappa_out 中各被計入一次，
+# 所以兩者的總和都必須等於所有 edge weights 的總和。這是一個索引方向
+# 與分組計算是否正確的基本安全性檢查。
+total_edge_weight = weights["weight"].sum()
+total_kappa_in = node_strengths["kappa_in"].sum()
+total_kappa_out = node_strengths["kappa_out"].sum()
+
+if not np.isclose(total_kappa_in, total_edge_weight):
+    raise RuntimeError("The sum of kappa_in is inconsistent with edge weights")
+
+if not np.isclose(total_kappa_out, total_edge_weight):
+    raise RuntimeError("The sum of kappa_out is inconsistent with edge weights")
+
+# 目前先不依 layer 分組，而是把全部層的節點放在一起計算摘要。
+# node_strengths 仍保留每個節點所屬的 layer，之後若需要再做逐層分析。
+strength_statistics = pd.DataFrame(
+    [
+        {
+            "node_count": len(node_strengths),
+            "mean_kappa_in": node_strengths["kappa_in"].mean(),
+            "std_kappa_in": node_strengths["kappa_in"].std(ddof=1),
+            "min_kappa_in": node_strengths["kappa_in"].min(),
+            "max_kappa_in": node_strengths["kappa_in"].max(),
+            "mean_kappa_out": node_strengths["kappa_out"].mean(),
+            "std_kappa_out": node_strengths["kappa_out"].std(ddof=1),
+            "min_kappa_out": node_strengths["kappa_out"].min(),
+            "max_kappa_out": node_strengths["kappa_out"].max(),
+        }
+    ]
+)
+
+print()
+print("Node-strength summary for all layers")
+print("------------------------------------")
+print(strength_statistics.round(6).to_string(index=False))
+
+
+# -----------------------------------------------------------------------------
+# 11. 準備所有 weights 的繪圖資料
 # -----------------------------------------------------------------------------
 
 all_weight_values = weights["weight"]
@@ -222,7 +290,7 @@ all_weight_mean = all_weight_values.mean()
 all_weight_std = all_weight_values.std(ddof=1)
 
 # -----------------------------------------------------------------------------
-# 11. 分別計算每一種 layer connection 的 weight 統計量
+# 12. 分別計算每一種 layer connection 的 weight 統計量
 # -----------------------------------------------------------------------------
 
 # 先找出實際出現在資料中的 (source_layer, target_layer) 組合。
@@ -312,7 +380,7 @@ print(weight_summary_for_terminal.to_string(index=False))
 
 
 # -----------------------------------------------------------------------------
-# 12. 讀取 bias.dat
+# 13. 讀取 bias.dat
 # -----------------------------------------------------------------------------
 
 if not bias_file.exists():
@@ -333,7 +401,7 @@ biases = pd.read_csv(
 
 
 # -----------------------------------------------------------------------------
-# 13. 檢查 bias 資料
+# 14. 檢查 bias 資料
 # -----------------------------------------------------------------------------
 
 if biases.empty:
@@ -372,7 +440,7 @@ if duplicated_local_node_exists:
 
 
 # -----------------------------------------------------------------------------
-# 14. 檢查 bias 中的 node、layer 與 topology 是否一致
+# 15. 檢查 bias 中的 node、layer 與 topology 是否一致
 # -----------------------------------------------------------------------------
 
 # 建立 global node -> local node 的對照表。
@@ -412,7 +480,7 @@ for bias_record in biases.itertuples(index=False):
         )
 
 # -----------------------------------------------------------------------------
-# 15. 為所有節點建立完整 bias，包括檔案中未列出的零
+# 16. 為所有節點建立完整 bias，包括檔案中未列出的零
 # -----------------------------------------------------------------------------
 
 # Fortran 會把 bias.dat 中沒有列出的節點設成 bias=0。
@@ -434,7 +502,7 @@ number_of_listed_biases = len(biases)
 number_of_unlisted_biases = len(all_nodes) - number_of_listed_biases
 
 # -----------------------------------------------------------------------------
-# 16. 分別計算每一層的 bias 統計量
+# 17. 分別計算每一層的 bias 統計量
 # -----------------------------------------------------------------------------
 
 bias_statistics_rows = []
@@ -526,7 +594,7 @@ print(
 
 
 # -----------------------------------------------------------------------------
-# 17. 畫出 weight 與 bias 的基本圖形
+# 18. 畫出 weight 與 bias 的基本圖形
 # -----------------------------------------------------------------------------
 
 figure, axes = plt.subplots(2, 2, figsize=(12, 9))
@@ -545,9 +613,9 @@ weight_histogram_axis.hist(
     alpha=0.8,
 )
 weight_histogram_axis.axvline(0.0, color="black", linewidth=1)
-weight_histogram_axis.set_xlabel("Weight")
-weight_histogram_axis.set_ylabel("Number of edges")
-weight_histogram_axis.set_title("All nonzero edge weights")
+weight_histogram_axis.set_xlabel("Weight", fontsize=16)
+weight_histogram_axis.set_ylabel("Number of edges", fontsize=16)
+weight_histogram_axis.set_title("All nonzero edge weights", fontsize=16)
 weight_histogram_axis.grid(alpha=0.25)
 weight_histogram_axis.text(
     0.03,
@@ -567,9 +635,9 @@ weight_boxplot_axis.boxplot(
     showfliers=False,
 )
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
-weight_boxplot_axis.set_xlabel("Source layer -> target layer")
-weight_boxplot_axis.set_ylabel("Weight")
-weight_boxplot_axis.set_title("Weights by layer")
+weight_boxplot_axis.set_xlabel("Source layer -> target layer", fontsize=16)
+weight_boxplot_axis.set_ylabel("Weight", fontsize=16)
+weight_boxplot_axis.set_title("Weights by layer", fontsize=16)
 weight_boxplot_axis.grid(alpha=0.25)
 
 
@@ -581,9 +649,9 @@ bias_histogram_axis.hist(
     alpha=0.8,
 )
 bias_histogram_axis.axvline(0.0, color="black", linewidth=1)
-bias_histogram_axis.set_xlabel("Bias")
-bias_histogram_axis.set_ylabel("Number of nodes")
-bias_histogram_axis.set_title("All nonzero biases")
+bias_histogram_axis.set_xlabel("Bias", fontsize=16)
+bias_histogram_axis.set_ylabel("Number of nodes", fontsize=16)
+bias_histogram_axis.set_title("All nonzero biases", fontsize=16)
 bias_histogram_axis.grid(alpha=0.25)
 bias_histogram_axis.text(
     0.03,
@@ -612,8 +680,79 @@ bias_boxplot_axis.grid(alpha=0.25)
 
 figure.tight_layout()
 
+
 # -----------------------------------------------------------------------------
-# 18. 各層 Laplace 分布擬合（與 train_FCNN/extract_parameters.py 相同估計）
+# 19. 畫出非邊界零值節點的 kappa_in 與 kappa_out 分布
+# -----------------------------------------------------------------------------
+
+# input layer 沒有 incoming edges，因此不放入 kappa_in histogram；
+# output layer 沒有 outgoing edges，因此不放入 kappa_out histogram。
+# 這裡按照 layer 排除結構上必然為零的節點，而不是以數值是否等於 0
+# 過濾，避免誤刪因正負權重剛好抵消而得到 0 的有效資料。
+first_layer = 1
+last_layer = len(layers)
+
+kappa_in_values = node_strengths.loc[
+    node_strengths["layer"] != first_layer,
+    "kappa_in",
+]
+kappa_out_values = node_strengths.loc[
+    node_strengths["layer"] != last_layer,
+    "kappa_out",
+]
+
+kappa_figure, kappa_axes = plt.subplots(1, 2, figsize=(12, 4.5))
+
+kappa_in_axis = kappa_axes[0]
+kappa_in_axis.hist(
+    kappa_in_values,
+    bins=60,
+    color="tab:green",
+    alpha=0.8,
+)
+kappa_in_axis.axvline(0.0, color="black", linewidth=1)
+kappa_in_axis.set_xlabel(r"$\kappa^{\mathrm{in}}$", fontsize=16)
+kappa_in_axis.set_ylabel("Number of nodes", fontsize=16)
+kappa_in_axis.set_title(r"Non-input nodes: $\kappa^{\mathrm{in}}$")
+kappa_in_axis.grid(alpha=0.25)
+kappa_in_axis.text(
+    0.03,
+    0.95,
+    f"Mean = {kappa_in_values.mean():.6g}\n"
+    f"Sample std = {kappa_in_values.std(ddof=1):.6g}",
+    transform=kappa_in_axis.transAxes,
+    horizontalalignment="left",
+    verticalalignment="top",
+    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+)
+
+kappa_out_axis = kappa_axes[1]
+kappa_out_axis.hist(
+    kappa_out_values,
+    bins=60,
+    color="tab:purple",
+    alpha=0.8,
+)
+kappa_out_axis.axvline(0.0, color="black", linewidth=1)
+kappa_out_axis.set_xlabel(r"$\kappa^{\mathrm{out}}$", fontsize=16)
+kappa_out_axis.set_ylabel("Number of nodes", fontsize=16)
+kappa_out_axis.set_title(r"Non-output nodes: $\kappa^{\mathrm{out}}$")
+kappa_out_axis.grid(alpha=0.25)
+kappa_out_axis.text(
+    0.03,
+    0.95,
+    f"Mean = {kappa_out_values.mean():.6g}\n"
+    f"Sample std = {kappa_out_values.std(ddof=1):.6g}",
+    transform=kappa_out_axis.transAxes,
+    horizontalalignment="left",
+    verticalalignment="top",
+    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+)
+
+kappa_figure.tight_layout()
+
+# -----------------------------------------------------------------------------
+# 20. 各層 Laplace 分布擬合（與 train_FCNN/extract_parameters.py 相同估計）
 # -----------------------------------------------------------------------------
 
 laplace_rows = []
@@ -652,8 +791,8 @@ def plot_laplace_fit(values, parameter, layer_label):
             pdf = np.exp(-np.abs(x - mu) / scale) / (2 * scale)
             ax.plot(x, pdf, color="red", linewidth=2,
                     label=fr"Laplace: $\mu={mu:.4g},\ b={scale:.4g}$")
-        ax.set_xlabel(parameter.capitalize())
-        ax.set_ylabel("Probability density")
+        ax.set_xlabel(parameter.capitalize(), fontsize=16)
+        ax.set_ylabel("Probability density", fontsize=16)
         ax.grid(alpha=0.2)
         ax.legend(fontsize=8)
     axes[0].set_title("Linear scale")
@@ -662,15 +801,15 @@ def plot_laplace_fit(values, parameter, layer_label):
     fig.tight_layout()
 
 
-for connection, values in zip(
-    connection_pairs.itertuples(index=False), weight_values_for_boxplot
-):
-    source, target = connection.source_layer, connection.target_layer
-    plot_laplace_fit(values, "weight", f"{source} -> {target}")
+# for connection, values in zip(
+#     connection_pairs.itertuples(index=False), weight_values_for_boxplot
+# ):
+#     source, target = connection.source_layer, connection.target_layer
+#     plot_laplace_fit(values, "weight", f"{source} -> {target}")
 
-# 不納入輸入層的預設零 bias；其餘層包含零值，與原有 boxplot 一致。
-for label, values in zip(bias_boxplot_labels, bias_values_for_boxplot):
-    plot_laplace_fit(values, "bias", label)
+# # 不納入輸入層的預設零 bias；其餘層包含零值，與原有 boxplot 一致。
+# for label, values in zip(bias_boxplot_labels, bias_values_for_boxplot):
+#     plot_laplace_fit(values, "bias", label)
 
 laplace_statistics = pd.DataFrame(laplace_rows)
 print("Laplace fits (mean-centered; b is scale, not standard deviation)")

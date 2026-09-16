@@ -20,6 +20,7 @@ contains
     subroutine run_shuffle_ensemble( &
     adj_matrix, W_original, bias_original, &
     r, noise, coupling_type, shuffle_mode, &
+    network_file, bias_file, &
     q_is_upper, q_is_lower, &
     n_shuffle, shuffle_seed, &
     fixedpoint_tolerance, fixedpoint_max_iterations, &
@@ -33,6 +34,7 @@ contains
     real(dp), intent(in) :: r(:)
     real(dp), intent(in) :: noise(:, :)
     character(len=*), intent(in) :: coupling_type, shuffle_mode
+    character(len=*), intent(in) :: network_file, bias_file
     real(dp), intent(in) :: original_total_entropy
     real(dp), intent(in) :: original_max_real_part
 
@@ -351,11 +353,14 @@ contains
     end if
 
     write(summary_unit, '(A)') &
+        "coupling_type,shuffle_mode,network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
         "original_min_kappa_out,original_max_real_part"
 
-    write(summary_unit, '(*(G0,:,","))') &
+    write(summary_unit, '(A,",",A,",",A,",",A,",",*(G0,:,","))') &
+        trim(adjustl(coupling_type)), trim(adjustl(shuffle_mode)), &
+        trim(network_file), trim(bias_file), &
         n_shuffle, n_stable, n_marginal, n_unstable, &
         original_total_entropy, original_min_kappa_in, &
         original_min_kappa_out, original_max_real_part
