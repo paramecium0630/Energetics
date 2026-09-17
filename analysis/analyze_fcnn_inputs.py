@@ -17,7 +17,7 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-directory = "input/mnist256x1_self"
+directory = "input/mnist256x1_self10"
 
 base_dir = Path("/home/para/Fortran/Energetics")
 
@@ -815,4 +815,32 @@ laplace_statistics = pd.DataFrame(laplace_rows)
 print("Laplace fits (mean-centered; b is scale, not standard deviation)")
 print(laplace_statistics.to_string(index=False))
 
-plt.show()
+# Excel 用的 Tab 分隔表格：weight L1/L2 指連接 1->2 / 2->3，
+# bias L2/L3 指節點所在層。沿用上述統計的樣本標準差（ddof=1）。
+excel_headers = [
+    "Mean weight (L1)", "Std weight (L1)",
+    "Mean weight (L2)", "Std weight (L2)",
+    "Mean bias (L2)", "Std bias (L2)",
+    "Mean bias (L3)", "Std bias (L3)",
+]
+excel_values = []
+for source, target in [(1, 2), (2, 3)]:
+    row = weight_statistics[
+        (weight_statistics["source_layer"] == source)
+        & (weight_statistics["target_layer"] == target)
+    ]
+    excel_values.extend(
+        row.iloc[0][["mean", "standard_deviation"]].tolist()
+        if not row.empty else [np.nan, np.nan]
+    )
+for layer in [2, 3]:
+    row = bias_statistics[bias_statistics["layer"] == layer]
+    excel_values.extend(
+        row.iloc[0][["mean", "standard_deviation"]].tolist()
+        if not row.empty else [np.nan, np.nan]
+    )
+print(f"\nExcel table: {directory} (sample std, ddof=1)")
+print("\t".join(excel_headers))
+print("\t".join(f"{value:.10g}" for value in excel_values))
+
+# plt.show()

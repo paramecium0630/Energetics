@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 INPUT_FILE = (
     PROJECT_ROOT
-    / "shuffle_data" / "mnist256x2_linear"
+    / "shuffle_data" / "mnist256x1_self2_diffusive"
     / "energetics_theory_by_node_and_layer.csv"
 )
 

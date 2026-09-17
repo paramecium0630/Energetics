@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
-output_dir = project_dir / "shuffle_data" / "mnist256x2_diffusive" / "shuffle"
+output_dir = project_dir / "shuffle_data" / "mnist256x1_self1_diffusive" / "shuffle"
 figure_dir = project_dir / "figure"
 figure_dir.mkdir(exist_ok=True)
 

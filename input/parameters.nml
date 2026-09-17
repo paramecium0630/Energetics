@@ -4,25 +4,25 @@
     directed   = .false.
     graph_type = "EXTERNAL"
     p          = 0.2
-    network_file = "input/mnist256x2/weighted_matrix.dat"
+    network_file = "input/mnist256x1_self1/weighted_matrix.dat"
 /
 
 &dynamics
-    bias_file   = "input/mnist256x2/bias.dat"
+    bias_file   = "input/mnist256x1_self1/bias.dat"
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0
-    r_mean     = 86.0
+    r_mean     = 10.0
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
-    coupling_type = "LINEAR"
+    coupling_type = "DIFFUSIVE"
     sigma_mean = 1.0
 /
 
 &theory
     verify_lyapunov = .true.
-    n_weight_shuffles = 1000
+    n_weight_shuffles = 0
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
 /
