@@ -1,12 +1,12 @@
-"""讀取 10 個 seed 的權重，分成 L1 (784→256) 與 L2 (256→10)。
+"""讀取 10 個 seed 的 FCNN 權重，每段連接分別存成 L1、L2、L3 等。
 
 執行：python read_seed_weights.py
+在下方修改 HIDDEN_LAYERS 即可切換隱藏層數；每個隱藏層寬度為 256。
 匯入：weights = load_seed_weights()
       W1 = weights[1]["L1"]  # seed 1，形狀 (256, 784)
-      W2 = weights[1]["L2"]  # seed 1，形狀 (10, 256)
+      W2 = weights[1]["L2"]  # seed 1 的第二段連接
 """
 
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -14,25 +14,29 @@ import matplotlib.pyplot as plt
 
 
 INPUT_DIR = Path(__file__).resolve().parent.parent / "input"
+HIDDEN_LAYERS = 2  # 1：784→256→10；2：784→256→256→10
 
 
-def load_weight_matrices(path):
+def load_weight_matrices(path, layer_sizes=(784, 256, 10)):
     """DAT 每行為 target source weight；矩陣排列為 [目標, 來源]。"""
     records = np.loadtxt(path, comments="#", ndmin=2)
-    if records.shape != (784 * 256 + 256 * 10, 3):
-        raise ValueError(f"{path}: 需要 203264 行、3 欄的權重資料")
+    edge_count = sum(a * b for a, b in zip(layer_sizes[:-1], layer_sizes[1:]))
+    if records.shape != (edge_count, 3):
+        raise ValueError(f"{path}: 需要 {edge_count} 行、3 欄的權重資料")
     if not np.isfinite(records).all():
         raise ValueError(f"{path}: 資料包含 NaN 或 Inf")
     indices = records[:, :2]
     if not np.equal(indices, np.floor(indices)).all():
         raise ValueError(f"{path}: 節點編號必須是整數")
 
-    # 全域節點：輸入 1~784，隱藏 785~1040，輸出 1041~1050。
+    # 每層的全域節點連續編號，由層寬自動算出範圍。
     source = records[:, 1]
     target = records[:, 0]
+    offsets = np.concatenate([[0], np.cumsum(layer_sizes)])
     specifications = {
-        "L1": (1, 784, 785, 1040),
-        "L2": (785, 1040, 1041, 1050),
+        f"L{i + 1}": (offsets[i] + 1, offsets[i + 1],
+                      offsets[i + 1] + 1, offsets[i + 2])
+        for i in range(len(layer_sizes) - 1)
     }
     matrices = {}
     for layer, (source_first, source_last, target_first, target_last) in specifications.items():
@@ -54,37 +58,40 @@ def load_weight_matrices(path):
     return matrices
 
 
-def load_seed_weights(input_dir=INPUT_DIR):
-    """回傳 weights[seed]['L1' 或 'L2']；seed 為整數 1~10。"""
+def load_seed_weights(input_dir=INPUT_DIR, hidden_layers=HIDDEN_LAYERS):
+    """回傳 weights[seed][layer]；seed 為整數 1~10。"""
+    if hidden_layers < 1:
+        raise ValueError("hidden_layers 必須至少為 1")
+    layer_sizes = [784] + [256] * hidden_layers + [10]
     input_dir = Path(input_dir)
     weights = {}
     for seed in range(1, 11):
-        path = input_dir / f"mnist256x1_self{seed}" / "weighted_matrix.dat"
-        weights[seed] = load_weight_matrices(path)
+        path = input_dir / f"mnist256x{hidden_layers}_self{seed}" / "weighted_matrix.dat"
+        weights[seed] = load_weight_matrices(path, layer_sizes)
     return weights
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input-dir", type=Path, default=INPUT_DIR)
-    args = parser.parse_args()
-    weights = load_seed_weights(args.input_dir)
+    weights = load_seed_weights(INPUT_DIR, HIDDEN_LAYERS)
+    layers = list(weights[1])
+    n_layers = len(layers)
 
-    # 第一維按照 seed 1~10 排列，保留每層矩陣形狀。
-    layer1_weights = np.stack([weights[seed]["L1"] for seed in range(1, 11)])
-    layer2_weights = np.stack([weights[seed]["L2"] for seed in range(1, 11)])
-    print(f"L1 (784 -> 256): {layer1_weights.shape} [seed, target, source]")
-    print(f"L2 (256 -> 10):  {layer2_weights.shape} [seed, target, source]")
-    print("Seed\tMean weight (L1)\tStd weight (L1)\tMean weight (L2)\tStd weight (L2)")
+    for layer in layers:
+        print(f"{layer}: {weights[1][layer].shape} [target, source]")
+    headers = ["Seed"]
+    for layer in layers:
+        headers.extend([f"Mean weight ({layer})", f"Std weight ({layer})"])
+    print("\t".join(headers))
     for seed in range(1, 11):
-        w1, w2 = weights[seed]["L1"], weights[seed]["L2"]
-        # 與 analyze_fcnn_inputs.py 一致：樣本標準差 ddof=1。
-        print(f"{seed}\t{w1.mean():.10g}\t{w1.std(ddof=1):.10g}"
-              f"\t{w2.mean():.10g}\t{w2.std(ddof=1):.10g}")
+        row = [str(seed)]
+        for layer in layers:
+            w = weights[seed][layer]
+            row.extend([f"{w.mean():.10g}", f"{w.std(ddof=1):.10g}"])
+        print("\t".join(row))
 
     # 每層一張子圖，10 個 seed 使用相同的分箱邊界。
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
-    for ax, layer in zip(axes, ["L1", "L2"]):
+    fig, axes = plt.subplots(1, n_layers, figsize=(6 * n_layers, 4.5))
+    for ax, layer in zip(axes, layers):
         all_values = np.concatenate([weights[seed][layer].ravel()
                                      for seed in range(1, 11)])
         bins = np.linspace(all_values.min(), all_values.max(), 81)
@@ -99,11 +106,10 @@ def main():
     fig.tight_layout()
 
     # 第二張圖：將 10 個 seed 的權重合併，每層各擬合一條 Laplace 曲線。
-    fig_fit, axes_fit = plt.subplots(1, 2, figsize=(12, 4.5))
-    for ax, layer, values in zip(
-        axes_fit, ["L1", "L2"],
-        [layer1_weights.ravel(), layer2_weights.ravel()],
-    ):
+    fig_fit, axes_fit = plt.subplots(1, n_layers, figsize=(6 * n_layers, 4.5))
+    for ax, layer in zip(axes_fit, layers):
+        values = np.concatenate([weights[seed][layer].ravel()
+                                 for seed in range(1, 11)])
         # 沿用 analyze_fcnn_inputs.py 的平均值中心估計，非自由位置 MLE。
         mu = values.mean()
         b = np.mean(np.abs(values - mu))
@@ -129,19 +135,18 @@ def main():
     in_degrees = {}
     out_degrees = {}
     for seed in range(1, 11):
-        w1, w2 = weights[seed]["L1"], weights[seed]["L2"]
-        # 矩陣為 [target, source]，每列加總是入強度，每欄加總是出強度。
-        # 入強度只取隱藏層 + 輸出層，排除輸入層的 784 個結構性零值。
-        in_degrees[seed] = np.concatenate([w1.sum(axis=1), w2.sum(axis=1)])
-        # 出強度只取輸入層 + 隱藏層，排除輸出層的 10 個結構性零值。
-        out_degrees[seed] = np.concatenate([w1.sum(axis=0), w2.sum(axis=0)])
+        matrices = list(weights[seed].values())
+        # 列加總：每段的目標節點，排除沒有入邊的輸入層。
+        in_degrees[seed] = np.concatenate([w.sum(axis=1) for w in matrices])
+        # 欄加總：每段的來源節點，排除沒有出邊的輸出層。
+        out_degrees[seed] = np.concatenate([w.sum(axis=0) for w in matrices])
         # 不刪除因正負權重抵消而恰好為零的數值。
 
     fig_degree, axes_degree = plt.subplots(1, 2, figsize=(12, 4.5))
     for ax, degrees, title in zip(
         axes_degree, [in_degrees, out_degrees],
-        ["Weighted in-degree (266 nodes/seed)",
-         "Weighted out-degree (1040 nodes/seed)"],
+        [f"Weighted in-degree ({len(in_degrees[1])} nodes/seed)",
+         f"Weighted out-degree ({len(out_degrees[1])} nodes/seed)"],
     ):
         all_values = np.concatenate(list(degrees.values()))
         bins = np.histogram_bin_edges(all_values, bins=60)

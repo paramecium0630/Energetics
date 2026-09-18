@@ -79,7 +79,7 @@ def main():
                ("t10k-images-idx3-ubyte", "t10k-labels-idx1-ubyte")):
         parser.error(f"找不到完整 MNIST 測試集：{args.data_dir}；可用 --data-dir 指定")
 
-    model_paths = [args.input_dir / f"mnist256x1_self{seed}" / "mnist_fcnn.onnx"
+    model_paths = [args.input_dir / f"mnist256x2_self{seed}" / "mnist_fcnn.onnx"
                    for seed in range(1, 11)]
     missing = [str(p) for p in model_paths if not p.is_file()]
     if missing:
