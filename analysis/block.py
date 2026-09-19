@@ -65,36 +65,9 @@ label = ['8', '10', '12', '14']
 marker = ['o', 's', '^', 'p']
 color = ['black', 'red', 'blue', 'green']
 
-Layer = []
-last_EPR = []
-EPR_net = []
-EPR_net_theory = []
 
-for i in range(25):
 
-    Layer.append((i+1)*10)
-    N = np.full(Layer[i], 10)
-    r = np.full(Layer[i], 0.995)
-    w = np.full(Layer[i], 0.1)
-    sigma = np.full(Layer[i], 1.0)
-    HR, EPR, WR, UR = uniform_layer(Layer[i], N, r, w, sigma)
-
-    g = N * w / (2 * r)
-
-    last_EPR.append(EPR[-1])
-    EPR_net.append(np.sum(EPR)/Layer[i])
-    EPR_net_theory.append(total_EPR_fromseries(Layer[i], g[i], -r[i])/Layer[i])
-
-print('coupling strength')
-print(N[0]*w[0]/r[0]/2)
-
-ax.axhline(y=1.0, color='r', linestyle='--', linewidth=1.5)
-ax.plot(Layer, EPR_net_theory)
-ax.scatter(Layer, EPR_net, label='', s=120, 
-            marker='o', edgecolors='black', facecolors='none',
-            linewidths=2)
-
-# ax.legend(fontsize=14)
+ax.legend(fontsize=14)
 ax.set_xlabel(r"No. of Layers", fontsize=24)
 ax.set_ylabel(r"Total EPR/L", fontsize=24)
 ax.tick_params(axis='both', labelsize=18)
