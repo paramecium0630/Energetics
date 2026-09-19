@@ -29,31 +29,6 @@ w = np.array([0.0, 1.0, 1.0, 1.0], dtype=float)
 #                 "linear"    for sum_j W_ij x_j.
 coupling_type = "linear"
 
-def validate_parameters() -> None:
-    """Check that the layer-level FCNN parameters are self-consistent."""
-    expected_shape = (L,)
-    for name, values in (("r", r), ("sigma", sigma), ("w", w)):
-        if values.shape != expected_shape:
-            raise ValueError(
-                f"{name} must contain one value per layer; "
-                f"expected {L}, got {values.size}"
-            )
-
-    if np.any(N <= 0):
-        raise ValueError("Every layer size in N must be positive")
-    if np.any(r <= 0.0):
-        raise ValueError("Every relaxation parameter in r must be positive")
-    if np.any(sigma < 0.0):
-        raise ValueError("Every noise intensity in sigma must be non-negative")
-    if w[0] != 0.0:
-        raise ValueError("w[0] must be zero because layer 1 has no input layer")
-    if coupling_type not in {"diffusive", "linear"}:
-        raise ValueError("coupling_type must be 'diffusive' or 'linear'")
-    if not all(np.all(np.isfinite(values)) for values in (r, sigma, w)):
-        raise ValueError("r, sigma, and w must contain only finite values")
-
-validate_parameters()
-
 def calculate_exact_energetics(N, r, sigma, w, coupling_type="diffusive"):
     L = N.size
 

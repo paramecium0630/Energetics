@@ -52,10 +52,11 @@ contains
 
     end subroutine generate_ws
 
-    subroutine generate_fcnn(param, n_hidden, layer_sizes, adj_matrix, W)
+    subroutine generate_fcnn(param, n_hidden, layer_sizes, w_by_connection, adj_matrix, W)
         type(SimulationParameters), intent(in) :: param
         integer, intent(in) :: n_hidden
         integer, intent(in) :: layer_sizes(:) ! no. of nodes in each layer
+        real(dp), intent(in) :: w_by_connection(:)
         logical, allocatable, intent(out) :: adj_matrix(:,:)
         real(dp), allocatable, intent(out) :: W(:,:)
         
@@ -76,6 +77,11 @@ contains
         end if
 
         n_layers = n_hidden + 2
+
+        if (size(w_by_connection) /= n_layers - 1) then
+            error stop &
+            "w_by_connection must contain n_layers-1 values"
+        end if
 
         if (size(layer_sizes) /= n_layers) then
             error stop "layer_sizes must contain input, hidden, and output layers"
@@ -126,7 +132,8 @@ contains
             do source_node = source_first, source_last
                 do target_node = target_first, target_last
 
-                    weight = param%weight_mean + param%weight_std * rand_normal()
+                    ! weight = param%weight_mean + param%weight_std * rand_normal()
+                    weight = w_by_connection(layer)
 
                     ! source -> target
                     adj_matrix(target_node, source_node) = .true.

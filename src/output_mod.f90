@@ -4,12 +4,14 @@ module output_mod
 
 contains
 
-    subroutine write_node_results(filename, r, noise, fixpoint, bias)
+    subroutine write_node_results( &
+        filename, r, noise, fixpoint, bias, node_layer)
         character(len=*), intent(in) :: filename
         real(dp), intent(in) :: r(:)
         real(dp), intent(in) :: noise(:, :)
         real(dp), intent(in) :: fixpoint(:)
         real(dp), intent(in) :: bias(:)
+        integer, intent(in), optional :: node_layer(:)
         integer :: i, n
         integer :: io_unit
 
@@ -24,15 +26,32 @@ contains
         if (size(bias) /= n) then
             error stop "r and bias size mismatch"
         end if
+        if (present(node_layer)) then
+            if (size(node_layer) /= n) then
+                error stop "r and node_layer size mismatch"
+            end if
+            if (any(node_layer <= 0)) then
+                error stop "FCNN layer indices must be positive"
+            end if
+        end if
 
         open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
         if (i /= 0) error stop "Error opening file for writing: "//filename
 
         write(io_unit, '(A)') "Node Results"
-        write(io_unit, '(A)') "Node Index, r, noise, fixpoint, bias"
+        write(io_unit, '(A)') &
+            "Node Index, layer, r, noise, fixpoint, bias"
         do i = 1, n
-            write(io_unit, '(*(G0,:,","))') &
-                i, r(i), noise(i,i), fixpoint(i), bias(i)
+            if (present(node_layer)) then
+                ! FCNN layer indices are one-based: input layer is layer 1.
+                write(io_unit, '(*(G0,:,","))') &
+                    i, node_layer(i), r(i), noise(i,i), &
+                    fixpoint(i), bias(i)
+            else
+                ! Layer 0 means that no FCNN layer assignment is available.
+                write(io_unit, '(*(G0,:,","))') &
+                    i, 0, r(i), noise(i,i), fixpoint(i), bias(i)
+            end if
         end do
 
         close(io_unit)

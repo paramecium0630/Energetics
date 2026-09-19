@@ -1,8 +1,8 @@
 &network
     ! N and directed are overridden by FCNN/EXTERNAL where applicable.
-    N          = 70
+    N          = 100
     directed   = .false.
-    graph_type = "EXTERNAL"
+    graph_type = "FCNN"
     p          = 0.2
     network_file = "input/mnist256x2_self10/weighted_matrix.dat"
 /
@@ -16,7 +16,7 @@
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
-    coupling_type = "TANH_INPUT"
+    coupling_type = "LINEAR"
     sigma_mean = 1.0
 /
 
@@ -28,10 +28,10 @@
 /
 
 &simulation
-    run_simulation = .false.
+    run_simulation = .true.
     dt       = 0.0005
-    t_relax  = 10.0
-    t_sample = 5000.0
+    t_relax  = 5.0
+    t_sample = 10000.0
     lag_steps = 1
     seed     = 1
 /

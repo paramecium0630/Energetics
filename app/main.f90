@@ -34,6 +34,8 @@ program main
     logical, allocatable :: adj_matrix(:,:)
     logical :: is_fcnn_network
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
+    real(dp), allocatable :: r_by_layer(:), w_by_connection(:)
+    real(dp), allocatable :: sigma_by_layer(:)
     real(dp), allocatable :: x(:), delta_x(:), force(:)
     real(dp), allocatable :: Q(:, :), fixpoint(:)
     
@@ -103,12 +105,28 @@ program main
       call generate_er(param, adj_matrix, W)
 
     case("FCNN")      
-      n_hidden = 2
+      n_hidden = 4
       allocate(layer_sizes(n_hidden+2))      
-      layer_sizes = 16; layer_sizes(1) = 50; layer_sizes(n_hidden+2) = 8
+      allocate(w_by_connection(n_hidden+1))
+      allocate(r_by_layer(n_hidden+2))
+      allocate(sigma_by_layer(n_hidden+2))
+      layer_sizes = 15; layer_sizes(1) = 30; layer_sizes(n_hidden+2) = 10
+
+      w_by_connection = [&
+      -0.3_dp, -0.1_dp, 0.1_dp, &
+      0.3_dp, 0.5_dp ]
+
+      r_by_layer = [ &
+      5.0_dp, 6.0_dp, 7.0_dp, &
+      8.0_dp, 9.0_dp, 10.0_dp ]
+
+      sigma_by_layer = [ &
+      0.05_dp, 0.06_dp, 0.07_dp, &
+      0.08_dp, 0.09_dp, 0.10_dp ]
+
       param%N = sum(layer_sizes)
       param%directed = .true.
-      call generate_FCNN(param, n_hidden, layer_sizes, adj_matrix, W)
+      call generate_FCNN(param, n_hidden, layer_sizes, w_by_connection, adj_matrix, W)
       call assign_node_layers(layer_sizes, node_layer)
       is_fcnn_network = .true.
 
@@ -132,6 +150,26 @@ program main
     print *, "-------------------------------"
 
     call set_parameters(param, r, noise)
+
+    if (trim(adjustl(param%graph_type)) == "FCNN") then
+
+    if (size(r_by_layer) /= size(layer_sizes)) then
+        error stop "r_by_layer and layer_sizes size mismatch"
+    end if
+
+    if (size(sigma_by_layer) /= size(layer_sizes)) then
+        error stop "sigma_by_layer and layer_sizes size mismatch"
+    end if
+
+    do i = 1, param%N
+        ! 節點 i 的 r 由它所屬的 layer 決定。
+        r(i) = r_by_layer(node_layer(i))
+
+        ! 節點 i 的 diagonal noise 由它所屬的 layer 決定。
+        noise(i, i) = sigma_by_layer(node_layer(i))
+    end do
+
+    end if
     
     call initialize_bias( &
       param, bias, bias_layer, n_bias, resolved_bias_mode)
@@ -248,8 +286,13 @@ program main
     end if
     print *, "max |F(x*)| =", max_force_at_fixedpoint
 
-    call write_node_results( &
-      'output/node.csv', r, noise, fixpoint, bias)
+    if (is_fcnn_network) then
+      call write_node_results( &
+        'output/node.csv', r, noise, fixpoint, bias, node_layer)
+    else
+      call write_node_results( &
+        'output/node.csv', r, noise, fixpoint, bias)
+    end if
 
     if (trim(adjustl(param%graph_type)) /= "EXTERNAL") then
       call write_edge_results('output/edge.csv', W, adj_matrix)

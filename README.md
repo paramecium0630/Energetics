@@ -467,7 +467,7 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 
 | 檔案 | 產生條件 | 內容 |
 |---|---|---|
-| `output/node.csv` | 每次執行 | node、`r`、noise diagonal、fixed point、實際 bias |
+| `output/node.csv` | 每次執行 | node、layer、`r`、noise diagonal、fixed point、實際 bias；非 FCNN 的 layer 為 0 |
 | `output/edge.csv` | generated ER/FCNN | target、source、weight；`EXTERNAL` 不重複輸出 |
 | `output/energetics_theory.csv` | 每次穩定的理論計算 | 每個節點的 heat、entropy、work、internal rate |
 | `output/energetics_theory_by_node_and_layer.csv` | 內建 FCNN，或具有一致 layer metadata 的 external FCNN | 每個節點的 layer ID 與 theoretical heat、entropy、work、internal rate；input layer 編號為 1，可依 layer 加總或計算統計量 |
