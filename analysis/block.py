@@ -59,19 +59,59 @@ def uniform_layer(Layer, N, r, w, sigma):
 
     return HR, EPR, WR, UR
 
+n = 100
+w = 0.01
+r0 = 0.99
+sigma = 1.0
+
 fig, ax = plt.subplots(figsize=(8,6))
 
-label = ['8', '10', '12', '14']
+label = ['2', '4', '6', '8']
 marker = ['o', 's', '^', 'p']
 color = ['black', 'red', 'blue', 'green']
 
+g = []
 
+for i in range(3):
 
-ax.legend(fontsize=14)
-ax.set_xlabel(r"No. of Layers", fontsize=24)
-ax.set_ylabel(r"Total EPR/L", fontsize=24)
-ax.tick_params(axis='both', labelsize=18)
-plt.savefig("figure/"+"EPR_net_perlayer.eps", format="eps", bbox_inches='tight')
+    Layer = []
+    EPR_layer = []
+    
+    r = r0 + i*0.01
+
+    g.append(n*w/2/r)
+
+    for l in range(20):
+
+        L = (l+1) * 20
+
+        Layer.append(L)
+
+        N = np.full(L, n)
+        W = np.full(L, w); W[0] = 0
+        R = np.full(L, r)
+        Sigma = np.full(L, sigma)
+
+        _, EPR, _, _ = uniform_layer(L, N, R, W, Sigma) 
+
+        EPR_layer.append(np.sum(EPR) / L) 
+
+    ax.scatter(
+            Layer,
+            EPR_layer,
+            label="g = "+f"{g[i]}",
+            marker=marker[i],
+            facecolors='none',
+            s=200,
+            color=color[i],
+    )
+    
+
+ax.legend(fontsize=16, loc='best')
+ax.set_xlabel(r"Layer", fontsize=24)
+ax.set_ylabel(r"Total EPR of each layer", fontsize=24)
+ax.tick_params(axis='both', labelsize=20)
+plt.savefig("figure/"+"EPR_layers.eps", format="eps", bbox_inches='tight')
 plt.show()
 
 # for l in range(1, Layer):
