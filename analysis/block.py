@@ -75,7 +75,8 @@ g = []
 for i in range(3):
 
     Layer = []
-    EPR_layer = []
+    EPRsum = []
+    EPRsum_serires = []
     
     r = r0 + i*0.01
 
@@ -94,24 +95,48 @@ for i in range(3):
 
         _, EPR, _, _ = uniform_layer(L, N, R, W, Sigma) 
 
-        EPR_layer.append(np.sum(EPR) / L) 
+        EPRsum_serires.append(total_EPR_fromseries(L, g[i], -r) / L)
+
+        EPRsum.append(np.sum(EPR) / L) 
+
+
+    ax.plot(
+        Layer,
+        EPRsum_serires,
+        linewidth=2
+    )
 
     ax.scatter(
             Layer,
-            EPR_layer,
+            EPRsum,
             label="g = "+f"{g[i]}",
             marker=marker[i],
             facecolors='none',
             s=200,
             color=color[i],
     )
-    
+lam = -1.01
+upper_limit = -lam*(1 - np.sqrt(1 - 4*g[2]*g[2]))
 
-ax.legend(fontsize=16, loc='best')
-ax.set_xlabel(r"Layer", fontsize=24)
-ax.set_ylabel(r"Total EPR of each layer", fontsize=24)
+ax.axhline(
+    y = 1.0,
+    color='red', 
+    linestyle='dashed',
+    linewidth=2
+)
+
+ax.axhline(
+    y = upper_limit,
+    color='blue', 
+    linestyle='dashed',
+    linewidth=2
+)
+
+ax.legend(fontsize=18, loc='best')
+ax.set_xlabel(r"$L$", fontsize=24)
+ax.set_ylabel(r"$\langle \dot{S} \rangle_{net}$", fontsize=24)
 ax.tick_params(axis='both', labelsize=20)
-plt.savefig("figure/"+"EPR_layers.eps", format="eps", bbox_inches='tight')
+plt.savefig("figure/"+"EPRnet_perlayers.eps", format="eps", bbox_inches='tight')
 plt.show()
 
 # for l in range(1, Layer):
