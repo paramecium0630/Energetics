@@ -118,10 +118,10 @@ program main
       ! Gaussian weight distribution for each adjacent layer connection.
       ! Setting a standard deviation to zero gives a delta distribution.
       w_mean_by_connection = [ &
-      0.0_dp, 0.0_dp]
+      0.031423203, 0.210853791]
 
       w_std_by_connection = [ &
-      0.031423203_dp, 0.210853791_dp]
+      0.0_dp, 0.0_dp]
 
       r_by_layer = [ &
       10.0_dp, 10.0_dp, 10.0_dp]
@@ -155,6 +155,7 @@ program main
     print*, "Network density =", real(count(adj_matrix), dp) / real(param%N * (param%N - 1), dp)
     print *, "Graph type = ", trim(param%graph_type)
     print *, "Directed   = ", param%directed
+    print *, "||W||^2 = ", sum(W**2)
     print *, "-------------------------------"
 
     call set_parameters(param, r, noise)
