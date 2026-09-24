@@ -52,11 +52,15 @@ contains
 
     end subroutine generate_ws
 
-    subroutine generate_fcnn(param, n_hidden, layer_sizes, w_by_connection, adj_matrix, W)
+    subroutine generate_fcnn( &
+        param, n_hidden, layer_sizes, &
+        w_mean_by_connection, w_std_by_connection, &
+        adj_matrix, W)
         type(SimulationParameters), intent(in) :: param
         integer, intent(in) :: n_hidden
         integer, intent(in) :: layer_sizes(:) ! no. of nodes in each layer
-        real(dp), intent(in) :: w_by_connection(:)
+        real(dp), intent(in) :: w_mean_by_connection(:)
+        real(dp), intent(in) :: w_std_by_connection(:)
         logical, allocatable, intent(out) :: adj_matrix(:,:)
         real(dp), allocatable, intent(out) :: W(:,:)
         
@@ -78,9 +82,18 @@ contains
 
         n_layers = n_hidden + 2
 
-        if (size(w_by_connection) /= n_layers - 1) then
+        if (size(w_mean_by_connection) /= n_layers - 1) then
             error stop &
-            "w_by_connection must contain n_layers-1 values"
+            "w_mean_by_connection must contain n_layers-1 values"
+        end if
+
+        if (size(w_std_by_connection) /= n_layers - 1) then
+            error stop &
+            "w_std_by_connection must contain n_layers-1 values"
+        end if
+
+        if (any(w_std_by_connection < 0.0_dp)) then
+            error stop "Weight standard deviations must be non-negative"
         end if
 
         if (size(layer_sizes) /= n_layers) then
@@ -132,8 +145,15 @@ contains
             do source_node = source_first, source_last
                 do target_node = target_first, target_last
 
-                    ! weight = param%weight_mean + param%weight_std * rand_normal()
-                    weight = w_by_connection(layer)
+                    if (w_std_by_connection(layer) == 0.0_dp) then
+                        ! Delta distribution at w_mean_by_connection(layer).
+                        ! Avoid consuming an unnecessary random number.
+                        weight = w_mean_by_connection(layer)
+                    else
+                        ! Independent Gaussian weight for this connection.
+                        weight = w_mean_by_connection(layer) + &
+                            w_std_by_connection(layer) * rand_normal()
+                    end if
 
                     ! source -> target
                     adj_matrix(target_node, source_node) = .true.
@@ -212,6 +232,120 @@ contains
         end do
 
     end subroutine shuffle_FCNN_weights
+
+    subroutine shuffle_fcnn_weights_by_layer( &
+    adj_matrix, W, node_layer)
+
+    integer :: n, n_layers
+    integer :: source_layer, target_layer
+    integer :: source_node, target_node
+    integer :: edge_index, n_edges
+    integer :: k, random_index
+    logical, intent(in) :: adj_matrix(:,:)
+    integer, intent(in) :: node_layer(:)
+    real(dp), intent(inout) :: W(:,:)
+
+
+    integer, allocatable :: source_indices(:)
+    integer, allocatable :: target_indices(:)
+    real(dp), allocatable :: edge_weights(:)
+
+    real(dp) :: temp
+
+    n = size(W, 1)
+
+    if (n <= 0) then
+    error stop "Layer weight shuffle requires a nonempty network"
+    end if
+
+    if (size(W, 2) /= n) then
+    error stop "W must be square"
+    end if
+
+    if (size(adj_matrix, 1) /= n .or. &
+    size(adj_matrix, 2) /= n) then
+    error stop "adj_matrix and W size mismatch"
+    end if
+
+    if (size(node_layer) /= n) then
+    error stop "node_layer and W size mismatch"
+    end if
+
+    if (any(node_layer <= 0)) then
+    error stop "Layer indices must be positive"
+    end if
+
+    n_layers = maxval(node_layer)
+
+    do source_layer = 1, n_layers
+        do target_layer = 1, n_layers
+
+            ! 計算這一組 source_layer -> target_layer 有幾條 edge。
+            n_edges = 0
+
+            do source_node = 1, n
+                if (node_layer(source_node) /= source_layer) cycle
+
+                do target_node = 1, n
+                    if (node_layer(target_node) /= target_layer) cycle
+
+                    if (adj_matrix(target_node, source_node)) then
+                        n_edges = n_edges + 1
+                    end if
+                end do
+            end do
+
+            if (n_edges <= 1) cycle
+
+            allocate(source_indices(n_edges))
+            allocate(target_indices(n_edges))
+            allocate(edge_weights(n_edges))
+
+            ! 收集同一組 layer connection 的 edge positions 和 weights。
+            edge_index = 0
+
+            do source_node = 1, n
+                if (node_layer(source_node) /= source_layer) cycle
+
+                do target_node = 1, n
+                    if (node_layer(target_node) /= target_layer) cycle
+
+                    if (.not. adj_matrix(target_node, source_node)) cycle
+
+                    edge_index = edge_index + 1
+                    source_indices(edge_index) = source_node
+                    target_indices(edge_index) = target_node
+                    edge_weights(edge_index) = &
+                    W(target_node, source_node)
+                end do
+            end do
+
+            ! Fisher-Yates shuffle。
+            do k = n_edges, 2, -1
+                random_index = 1 + &
+                int(rand_uniform() * real(k, dp))
+
+                temp = edge_weights(k)
+                edge_weights(k) = edge_weights(random_index)
+                edge_weights(random_index) = temp
+            end do
+
+            ! 放回同一組 layer connection。
+            do edge_index = 1, n_edges
+                W( &
+                target_indices(edge_index), &
+                source_indices(edge_index) &
+                ) = edge_weights(edge_index)
+            end do
+
+            deallocate(source_indices)
+            deallocate(target_indices)
+            deallocate(edge_weights)
+
+        end do
+    end do
+
+    end subroutine shuffle_fcnn_weights_by_layer
 
     subroutine read_weighted_edge_list(filename, adj_matrix, W, n_nodes)
         use, intrinsic :: iso_fortran_env, only : iostat_end

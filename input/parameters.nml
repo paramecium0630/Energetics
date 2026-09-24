@@ -4,11 +4,11 @@
     directed   = .false.
     graph_type = "FCNN"
     p          = 0.2
-    network_file = "input/mnist256x2_self10/weighted_matrix.dat"
+    network_file = "input/uniform/mnist256x1_self1/weighted_matrix.dat"
 /
 
 &dynamics
-    bias_file   = "input/mnist256x2_self10/bias.dat"
+    bias_file   = "input/uniform/mnist256x1_self1/bias.dat"
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0
@@ -16,7 +16,7 @@
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
-    coupling_type = "LINEAR"
+    coupling_type = "DIFFUSIVE"
     sigma_mean = 1.0
 /
 
@@ -25,10 +25,11 @@
     n_weight_shuffles = 0
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
+    shuffle_scope     = "LAYER"
 /
 
 &simulation
-    run_simulation = .true.
+    run_simulation = .false.
     dt       = 0.0005
     t_relax  = 5.0
     t_sample = 10000.0

@@ -30,6 +30,7 @@ module parameter_mod
         integer :: n_weight_shuffles
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
+        character(len=16) :: shuffle_scope
 
         ! Simulation
         logical :: run_simulation
@@ -75,6 +76,7 @@ contains
         integer :: n_weight_shuffles
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
+        character(len=16) :: shuffle_scope
 
         real(dp) :: dt
         real(dp) :: t_relax
@@ -90,7 +92,7 @@ contains
                             coupling_type, sigma_mean
 
         namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed, &
-                          shuffle_mode
+                          shuffle_mode, shuffle_scope
 
         namelist /simulation/ run_simulation, dt, t_relax, t_sample, lag_steps, seed
 
@@ -117,6 +119,7 @@ contains
         n_weight_shuffles = 0
         shuffle_seed = 1001
         shuffle_mode = "WEIGHT"
+        shuffle_scope = "GLOBAL"
 
         run_simulation = .true.    
         dt          = 0.001_dp
@@ -174,6 +177,14 @@ contains
         if (n_weight_shuffles < 0) then
             error stop "n_weight_shuffles must be non-negative"
         end if
+
+        select case (trim(adjustl(shuffle_scope)))
+        case ("GLOBAL", "LAYER")
+            continue
+        case default
+            error stop "shuffle_scope must be GLOBAL or LAYER"
+        end select
+
         select case (trim(adjustl(shuffle_mode)))
         case ("WEIGHT", "BIAS", "BOTH")
             continue
@@ -207,6 +218,7 @@ contains
         param%n_weight_shuffles = n_weight_shuffles
         param%shuffle_seed = shuffle_seed
         param%shuffle_mode = shuffle_mode
+        param%shuffle_scope = shuffle_scope
 
         param%run_simulation = run_simulation
         param%dt          = dt

@@ -303,7 +303,7 @@ fpm test --profile debug \
 | `graph_type` | 行為 |
 |---|---|
 | `ER` | 使用 `N`、`p`、`directed`，edge weight 為 `weight_mean + weight_std * Normal(0,1)` |
-| `FCNN` | 產生相鄰層 fully connected 的 feed-forward 網路；目前 layer sizes 在 `app/main.f90` 中固定為 `[50,16,16,8]`，每條 weight 為 `weight_mean + weight_std * Normal(0,1)` |
+| `FCNN` | 產生相鄰層 fully connected 的 feed-forward 網路；layer sizes 與各 layer connection 的 Gaussian weight mean/std 設於 `app/main.f90`，std 為 0 時是 delta distribution |
 | `EXTERNAL` | 讀取 `network_file`；由最大 node index 推得 `N`，並視為 directed |
 
 `generate_ba` 與 `generate_ws` 目前只是尚未實作的介面，不能由主程式選用。
@@ -314,8 +314,8 @@ fpm test --profile debug \
 |---|---|
 | `r_mean` | 目前所有節點皆使用 `r(i) = r_mean` |
 | `r_std` | 已保留但目前未套用到 `r` |
-| `weight_mean` | ER 與程式內 FCNN weight 的平均值 |
-| `weight_std` | ER 與程式內 FCNN weight 的標準差 |
+| `weight_mean` | ER edge weight 的平均值；generated FCNN 使用 `app/main.f90` 的 layer-wise 設定 |
+| `weight_std` | ER edge weight 的標準差；generated FCNN 使用 `app/main.f90` 的 layer-wise 設定 |
 | `coupling_type` | `DIFFUSIVE`、`LINEAR`、`TANH` 或 `TANH_INPUT` |
 | `bias_mode` | `AUTO`、`ZERO`、`RANDOM` 或 `FILE` |
 | `bias_file` | `FILE` 模式讀取的 bias data 路徑 |

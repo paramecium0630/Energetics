@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-INPUT_DIR = Path(__file__).resolve().parent.parent / "input"
+INPUT_DIR = Path(__file__).resolve().parent.parent / "input/uniform"
 HIDDEN_LAYERS = 2  # 1：784→256→10；2：784→256→256→10
 
 

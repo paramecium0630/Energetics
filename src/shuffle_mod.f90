@@ -1,7 +1,9 @@
 module shuffle_mod
     use precision_mod
     use random_mod, only : initialize_seed, rand_uniform
-    use network_mod, only : shuffle_FCNN_weights
+    use network_mod, only : &
+    shuffle_FCNN_weights, &
+    shuffle_fcnn_weights_by_layer
     use langevin_mod, only : construct_Q
     use theory_mod, only : &
         solve_lyapunov_triangular_blocked, &
@@ -20,8 +22,8 @@ contains
     subroutine run_shuffle_ensemble( &
     adj_matrix, W_original, bias_original, &
     r, noise, coupling_type, shuffle_mode, &
-    network_file, bias_file, &
-    q_is_upper, q_is_lower, &
+    shuffle_scope, network_file, bias_file, &
+    node_layer, q_is_upper, q_is_lower, &
     n_shuffle, shuffle_seed, &
     fixedpoint_tolerance, fixedpoint_max_iterations, &
     original_total_entropy, original_max_real_part, &
@@ -29,11 +31,12 @@ contains
     summary_filename)
 
     logical, intent(in) :: adj_matrix(:, :)
+    integer, intent(in) :: node_layer(:)
     real(dp), intent(in) :: W_original(:, :)
     real(dp), intent(in) :: bias_original(:)
     real(dp), intent(in) :: r(:)
     real(dp), intent(in) :: noise(:, :)
-    character(len=*), intent(in) :: coupling_type, shuffle_mode
+    character(len=*), intent(in) :: coupling_type, shuffle_mode, shuffle_scope
     character(len=*), intent(in) :: network_file, bias_file
     real(dp), intent(in) :: original_total_entropy
     real(dp), intent(in) :: original_max_real_part
@@ -120,18 +123,38 @@ contains
         error stop "shuffle_seed must be non-negative"
     end if
 
-    select case (trim(adjustl(shuffle_mode)))
-    case ("WEIGHT")
-        check_weight_distribution = .true.
-        check_bias_distribution = .false.
-    case ("BIAS")
-        check_weight_distribution = .false.
-        check_bias_distribution = .true.
-    case ("BOTH")
-        check_weight_distribution = .true.
-        check_bias_distribution = .true.
+    if (size(node_layer) /= n) then
+        error stop "node_layer and network size mismatch"
+    end if
+
+    if (any(node_layer <= 0)) then
+        error stop "Layer shuffle requires positive layer indices"
+    end if
+
+    select case (trim(adjustl(shuffle_scope)))
+    case ("GLOBAL", "LAYER")
+        continue
     case default
-        error stop "shuffle_mode must be WEIGHT, BIAS, or BOTH"
+        error stop "shuffle_scope must be GLOBAL or LAYER"
+    end select
+
+    select case (trim(adjustl(shuffle_mode)))
+
+    case ("WEIGHT")
+    check_weight_distribution = .true.
+    check_bias_distribution = .false.
+
+    case ("BIAS")
+    check_weight_distribution = .false.
+    check_bias_distribution = .true.
+
+    case ("BOTH")
+    check_weight_distribution = .true.
+    check_bias_distribution = .true.
+
+    case default
+    error stop "shuffle_mode must be WEIGHT, BIAS, or BOTH"
+
     end select
 
     select case (trim(adjustl(coupling_type)))
@@ -221,14 +244,41 @@ contains
     W_trial = W_original
     bias_trial = bias_original
 
+    select case (trim(adjustl(shuffle_scope)))
+
+    case ("GLOBAL")
+
     select case (trim(adjustl(shuffle_mode)))
     case ("WEIGHT")
-        call shuffle_FCNN_weights(adj_matrix, W_trial)
+        call shuffle_fcnn_weights(adj_matrix, W_trial)
+
     case ("BIAS")
         call shuffle_bias_values(bias_trial)
+
     case ("BOTH")
-        call shuffle_FCNN_weights(adj_matrix, W_trial)
+        call shuffle_fcnn_weights(adj_matrix, W_trial)
         call shuffle_bias_values(bias_trial)
+    end select
+
+    case ("LAYER")
+
+    select case (trim(adjustl(shuffle_mode)))
+    case ("WEIGHT")
+        call shuffle_fcnn_weights_by_layer( &
+            adj_matrix, W_trial, node_layer)
+
+    case ("BIAS")
+        call shuffle_bias_values_by_layer( &
+            bias_trial, node_layer)
+
+    case ("BOTH")
+        call shuffle_fcnn_weights_by_layer( &
+            adj_matrix, W_trial, node_layer)
+
+        call shuffle_bias_values_by_layer( &
+            bias_trial, node_layer)
+    end select
+
     end select
 
     ! Safety checks: a shuffle may change positions, but it must not
@@ -244,6 +294,23 @@ contains
         if (.not. value_distribution_is_preserved( &
             bias_original, bias_trial)) then
             error stop "Bias shuffle changed its distribution"
+        end if
+    end if
+
+    ! A global check is not sufficient for a layer-preserving shuffle:
+    ! values could move between layers while keeping the network-wide
+    ! distribution unchanged. Verify every affected layer separately.
+    if (trim(adjustl(shuffle_scope)) == "LAYER") then
+        if (check_weight_distribution) then
+            call check_weight_statistics_by_layer( &
+                adj_matrix, W_original, W_trial, node_layer, &
+                shuffle_id == 1)
+        end if
+
+        if (check_bias_distribution) then
+            call check_bias_statistics_by_layer( &
+                bias_original, bias_trial, node_layer, &
+                shuffle_id == 1)
         end if
     end if
 
@@ -382,6 +449,204 @@ contains
 
     end subroutine run_shuffle_ensemble
 
+    subroutine calculate_mean_std(values, mean_value, std_value)
+    real(dp), intent(in) :: values(:)
+    real(dp), intent(out) :: mean_value
+    real(dp), intent(out) :: std_value
+
+    integer :: n
+    real(dp) :: variance
+
+    n = size(values)
+
+    if (n <= 0) then
+        error stop "Cannot compute statistics of an empty array"
+    end if
+
+    mean_value = sum(values) / real(n, dp)
+
+    if (n == 1) then
+        std_value = 0.0_dp
+    else
+        variance = sum((values - mean_value)**2) / &
+                   real(n - 1, dp)
+
+        ! 避免浮點誤差產生非常小的負數。
+        std_value = sqrt(max(0.0_dp, variance))
+    end if
+
+    end subroutine calculate_mean_std
+
+    subroutine check_mean_std(reference, trial, label, show_statistics)
+    real(dp), intent(in) :: reference(:)
+    real(dp), intent(in) :: trial(:)
+    character(len=*), intent(in) :: label
+    logical, intent(in) :: show_statistics
+
+    real(dp) :: mean_reference, mean_trial
+    real(dp) :: std_reference, std_trial
+    real(dp) :: tolerance
+
+    if (size(reference) /= size(trial)) then
+        error stop trim(label) // ": array sizes differ"
+    end if
+
+    call calculate_mean_std( &
+        reference, mean_reference, std_reference)
+
+    call calculate_mean_std( &
+        trial, mean_trial, std_trial)
+
+    if (show_statistics) then
+        print *, trim(label)
+        print *, "  original mean =", mean_reference
+        print *, "  shuffled mean =", mean_trial
+        print *, "  original std  =", std_reference
+        print *, "  shuffled std  =", std_trial
+    end if
+
+    tolerance = 100.0_dp * real(size(reference), dp) * &
+                epsilon(1.0_dp) * &
+                max(1.0_dp, abs(mean_reference), std_reference)
+
+    if (abs(mean_trial - mean_reference) > tolerance) then
+        print *, trim(label), " original mean =", mean_reference
+        print *, trim(label), " shuffled mean =", mean_trial
+        error stop "Shuffle changed the mean"
+    end if
+
+    if (abs(std_trial - std_reference) > tolerance) then
+        print *, trim(label), " original std =", std_reference
+        print *, trim(label), " shuffled std =", std_trial
+        error stop "Shuffle changed the standard deviation"
+    end if
+
+    end subroutine check_mean_std
+
+    subroutine check_weight_statistics_by_layer( &
+        adj_matrix, W_reference, W_trial, node_layer, show_statistics)
+        ! Check the mean and sample standard deviation independently for
+        ! every source-layer -> target-layer connection that contains edges.
+        logical, intent(in) :: adj_matrix(:, :)
+        real(dp), intent(in) :: W_reference(:, :)
+        real(dp), intent(in) :: W_trial(:, :)
+        integer, intent(in) :: node_layer(:)
+        logical, intent(in) :: show_statistics
+
+        integer :: n, n_layers
+        integer :: source_layer, target_layer
+        integer :: source_node, target_node
+        integer :: n_edges, edge_index
+        real(dp), allocatable :: reference_values(:)
+        real(dp), allocatable :: trial_values(:)
+        character(len=64) :: label
+
+        n = size(W_reference, 1)
+
+        if (n <= 0 .or. size(W_reference, 2) /= n) then
+            error stop "W_reference must be a nonempty square matrix"
+        end if
+        if (size(W_trial, 1) /= n .or. size(W_trial, 2) /= n) then
+            error stop "W_reference and W_trial size mismatch"
+        end if
+        if (size(adj_matrix, 1) /= n .or. &
+            size(adj_matrix, 2) /= n) then
+            error stop "adj_matrix and W_reference size mismatch"
+        end if
+        if (size(node_layer) /= n .or. any(node_layer <= 0)) then
+            error stop "Invalid node layers in weight statistics check"
+        end if
+
+        n_layers = maxval(node_layer)
+
+        do source_layer = 1, n_layers - 1
+            target_layer = source_layer + 1
+            n_edges = 0
+
+            do source_node = 1, n
+                if (node_layer(source_node) /= source_layer) cycle
+
+                do target_node = 1, n
+                    if (node_layer(target_node) /= target_layer) cycle
+                    if (adj_matrix(target_node, source_node)) &
+                        n_edges = n_edges + 1
+                end do
+            end do
+
+            if (n_edges == 0) cycle
+
+            allocate(reference_values(n_edges), trial_values(n_edges))
+            edge_index = 0
+
+            do source_node = 1, n
+                if (node_layer(source_node) /= source_layer) cycle
+
+                do target_node = 1, n
+                    if (node_layer(target_node) /= target_layer) cycle
+                    if (.not. adj_matrix(target_node, source_node)) cycle
+
+                    edge_index = edge_index + 1
+                    reference_values(edge_index) = &
+                        W_reference(target_node, source_node)
+                    trial_values(edge_index) = &
+                        W_trial(target_node, source_node)
+                end do
+            end do
+
+            write(label, '(A,I0,A,I0)') &
+                "Weight layers ", source_layer, " -> ", target_layer
+            call check_mean_std( &
+                reference_values, trial_values, label, show_statistics)
+
+            deallocate(reference_values, trial_values)
+        end do
+
+    end subroutine check_weight_statistics_by_layer
+
+    subroutine check_bias_statistics_by_layer( &
+        bias_reference, bias_trial, node_layer, show_statistics)
+        ! Check the mean and sample standard deviation independently for
+        ! the bias values belonging to each node layer.
+        real(dp), intent(in) :: bias_reference(:)
+        real(dp), intent(in) :: bias_trial(:)
+        integer, intent(in) :: node_layer(:)
+        logical, intent(in) :: show_statistics
+
+        integer :: n, n_layers, layer
+        real(dp), allocatable :: reference_values(:)
+        real(dp), allocatable :: trial_values(:)
+        character(len=64) :: label
+
+        n = size(bias_reference)
+
+        if (n <= 0 .or. size(bias_trial) /= n) then
+            error stop "bias_reference and bias_trial size mismatch"
+        end if
+        if (size(node_layer) /= n .or. any(node_layer <= 0)) then
+            error stop "Invalid node layers in bias statistics check"
+        end if
+
+        n_layers = maxval(node_layer)
+
+        do layer = 1, n_layers
+            reference_values = pack( &
+                bias_reference, node_layer == layer)
+            trial_values = pack( &
+                bias_trial, node_layer == layer)
+
+            if (size(reference_values) == 0) then
+                error stop "A node layer contains no bias values"
+            end if
+
+            write(label, '(A,I0)') "Bias layer ", layer
+            call check_mean_std( &
+                reference_values, trial_values, label, show_statistics)
+
+            deallocate(reference_values, trial_values)
+        end do
+
+    end subroutine check_bias_statistics_by_layer
+
     subroutine shuffle_bias_values(bias)
         ! Preserve the network-wide bias multiset while allowing values
         ! to move between any nodes, including nodes in different layers.
@@ -404,6 +669,62 @@ contains
         end do
 
     end subroutine shuffle_bias_values
+
+    subroutine shuffle_bias_values_by_layer(bias, node_layer)
+
+    real(dp), intent(inout) :: bias(:)
+    integer, intent(in) :: node_layer(:)
+    integer :: n, n_layers
+    integer :: layer, i, k
+    integer :: n_nodes_in_layer
+    integer :: random_index
+
+    integer, allocatable :: layer_nodes(:)
+    real(dp) :: temp
+
+    n = size(bias)
+    if (size(bias) <= 0) then
+    error stop "Bias array must not be empty"
+    end if
+
+    if (size(node_layer) /= size(bias)) then
+    error stop "bias and node_layer size mismatch"
+    end if
+
+    if (any(node_layer <= 0)) then
+    error stop "Layer indices must be positive"
+    end if
+
+    n_layers = maxval(node_layer)
+
+    do layer = 1, n_layers
+
+        n_nodes_in_layer = count(node_layer == layer)
+
+        if (n_nodes_in_layer <= 1) cycle
+
+        allocate(layer_nodes(n_nodes_in_layer))
+
+        layer_nodes = pack( &
+        [(i, i = 1, n)], &
+        node_layer == layer)
+
+        ! 只交換這個 layer 中的 bias。
+        do k = n_nodes_in_layer, 2, -1
+            random_index = 1 + &
+            int(rand_uniform() * real(k, dp))
+
+            temp = bias(layer_nodes(k))
+            bias(layer_nodes(k)) = &
+            bias(layer_nodes(random_index))
+            bias(layer_nodes(random_index)) = temp
+        end do
+
+        deallocate(layer_nodes)
+
+    end do
+
+    end subroutine shuffle_bias_values_by_layer
 
     logical function weight_shuffle_is_valid( &
         adj_matrix, W_reference, W_trial)

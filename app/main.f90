@@ -34,7 +34,9 @@ program main
     logical, allocatable :: adj_matrix(:,:)
     logical :: is_fcnn_network
     real(dp), allocatable :: r(:), W(:, :), noise(:, :)
-    real(dp), allocatable :: r_by_layer(:), w_by_connection(:)
+    real(dp), allocatable :: r_by_layer(:)
+    real(dp), allocatable :: w_mean_by_connection(:)
+    real(dp), allocatable :: w_std_by_connection(:)
     real(dp), allocatable :: sigma_by_layer(:)
     real(dp), allocatable :: x(:), delta_x(:), force(:)
     real(dp), allocatable :: Q(:, :), fixpoint(:)
@@ -105,28 +107,34 @@ program main
       call generate_er(param, adj_matrix, W)
 
     case("FCNN")      
-      n_hidden = 4
+      n_hidden = 1
       allocate(layer_sizes(n_hidden+2))      
-      allocate(w_by_connection(n_hidden+1))
+      allocate(w_mean_by_connection(n_hidden+1))
+      allocate(w_std_by_connection(n_hidden+1))
       allocate(r_by_layer(n_hidden+2))
       allocate(sigma_by_layer(n_hidden+2))
-      layer_sizes = 15; layer_sizes(1) = 30; layer_sizes(n_hidden+2) = 10
+      layer_sizes = 256; layer_sizes(1) = 784; layer_sizes(n_hidden+2) = 10
 
-      w_by_connection = [&
-      -0.3_dp, -0.1_dp, 0.1_dp, &
-      0.3_dp, 0.5_dp ]
+      ! Gaussian weight distribution for each adjacent layer connection.
+      ! Setting a standard deviation to zero gives a delta distribution.
+      w_mean_by_connection = [ &
+      0.0_dp, 0.0_dp]
+
+      w_std_by_connection = [ &
+      0.031423203_dp, 0.210853791_dp]
 
       r_by_layer = [ &
-      5.0_dp, 6.0_dp, 7.0_dp, &
-      8.0_dp, 9.0_dp, 10.0_dp ]
+      10.0_dp, 10.0_dp, 10.0_dp]
 
       sigma_by_layer = [ &
-      0.05_dp, 0.06_dp, 0.07_dp, &
-      0.08_dp, 0.09_dp, 0.10_dp ]
+      1.0_dp, 1.0_dp, 1.0_dp]
 
       param%N = sum(layer_sizes)
       param%directed = .true.
-      call generate_FCNN(param, n_hidden, layer_sizes, w_by_connection, adj_matrix, W)
+      call generate_FCNN( &
+      param, n_hidden, layer_sizes, &
+      w_mean_by_connection, w_std_by_connection, &
+      adj_matrix, W)
       call assign_node_layers(layer_sizes, node_layer)
       is_fcnn_network = .true.
 
@@ -475,8 +483,8 @@ program main
       call run_shuffle_ensemble( &
       adj_matrix, W, bias, &
       r, noise, param%coupling_type, param%shuffle_mode, &
-      param%network_file, param%bias_file, &
-      q_is_upper, q_is_lower, &
+      param%shuffle_scope, param%network_file, param%bias_file, &
+      node_layer, q_is_upper, q_is_lower, &
       param%n_weight_shuffles, &
       param%shuffle_seed, &
       fixedpoint_tolerance, fixedpoint_max_iterations, &
