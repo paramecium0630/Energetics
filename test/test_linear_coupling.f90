@@ -10,6 +10,7 @@ program test_linear_coupling
     real(dp), allocatable :: Q(:,:), alpha(:,:), heat(:), work(:), internal(:), entropy(:)
     logical :: adjacency(2,2)
     integer :: unit, status, trial, trial_id
+    integer :: node_layer(2)
     real(dp) :: trial_eigenvalue, trial_entropy
     character(len=512) :: line
     real(dp), parameter :: tol = 1.0e-12_dp
@@ -42,8 +43,9 @@ program test_linear_coupling
     ! Bias permutation must not change LINEAR theory energetics.
     adjacency = .false.
     adjacency(2,1) = .true.
+    node_layer = [1, 2]
     call run_shuffle_ensemble(adjacency, W, bias, r, noise, "LINEAR", "BOTH", &
-        "test_network.dat", "test_bias.dat", &
+        "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
         .false., .true., 2, 2718, tol, 100, sum(entropy), -2.0_dp, &
         "test_linear_stability.csv", "test_linear_energetics.csv", "test_linear_summary.csv")
     open(newunit=unit, file="test_linear_energetics.csv", status="old")

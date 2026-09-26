@@ -2,6 +2,90 @@ from scipy.linalg import solve_sylvester
 import math
 import numpy as np
 
+
+def calculate_exact_energetics(N, r, sigma, w, coupling_type="diffusive"):
+    """Compute reduced-layer FCNN energetics from a Sylvester equation."""
+    N = np.asarray(N, dtype=int)
+    r = np.asarray(r, dtype=float)
+    sigma = np.asarray(sigma, dtype=float)
+    w = np.asarray(w, dtype=float)
+    layer_count = N.size
+
+    if not (r.size == sigma.size == w.size == layer_count):
+        raise ValueError("N, r, sigma, and w must have the same length")
+    if np.any(N <= 0):
+        raise ValueError("Every layer must contain at least one node")
+    if np.any(sigma <= 0.0):
+        raise ValueError("Noise intensities must be positive")
+
+    if coupling_type == "diffusive":
+        diagonal = -r.copy()
+        diagonal[1:] -= N[:-1] * w[1:]
+    elif coupling_type == "linear":
+        diagonal = -r.copy()
+    else:
+        raise ValueError("coupling_type must be 'diffusive' or 'linear'")
+
+    incoming_coupling = np.zeros(layer_count, dtype=float)
+    incoming_coupling[1:] = N[:-1] * w[1:]
+
+    delta = np.zeros((layer_count, layer_count), dtype=float)
+    for layer in range(1, layer_count):
+        delta[layer, layer - 1] = sigma[layer - 1] * w[layer]
+        delta[layer - 1, layer] = -delta[layer, layer - 1]
+
+    reduced_jacobian = np.diag(diagonal)
+    reduced_jacobian[
+        np.arange(1, layer_count), np.arange(layer_count - 1)
+    ] = incoming_coupling[1:]
+
+    alpha = solve_sylvester(
+        reduced_jacobian,
+        reduced_jacobian.T,
+        delta,
+    )
+    alpha = 0.5 * (alpha - alpha.T)
+
+    if not np.allclose(
+        reduced_jacobian @ alpha + alpha @ reduced_jacobian.T,
+        delta,
+    ):
+        raise RuntimeError("Reduced Sylvester residual is too large")
+
+    flux = np.zeros(layer_count + 1, dtype=float)
+    for layer in range(1, layer_count):
+        flux[layer] = (
+            N[layer - 1] * w[layer] * alpha[layer, layer - 1]
+        )
+
+    current_flux = flux[:-1]
+    next_flux = flux[1:]
+    next_layer_size = np.zeros(layer_count, dtype=float)
+    next_layer_size[:-1] = N[1:]
+
+    heat = 0.5 * N * current_flux
+    entropy = -N * current_flux / sigma
+    work = 0.25 * (
+        N * current_flux + next_layer_size * next_flux
+    )
+    internal = 0.25 * (
+        N * current_flux - next_layer_size * next_flux
+    )
+
+    if not np.allclose(heat - work, internal):
+        raise RuntimeError("Reduced energetics violates heat - work = internal")
+
+    return {
+        "lambda": diagonal,
+        "a": alpha,
+        "I": flux,
+        "heat": heat,
+        "entropy": entropy,
+        "work": work,
+        "internal": internal,
+    }
+
+
 def enumerate_dyck_paths(k):
     paths = []
     
@@ -51,45 +135,18 @@ def catalan_number(n):
 
 # solve a from the Sylvester eq.
 def layer_energetics_sylvester(Layer, N, r, w, sigma):
+    if Layer != len(N):
+        raise ValueError("Layer must equal len(N)")
 
-    P = np.zeros((Layer, Layer)) # reduced Jacobian matrix
-    d = np.zeros((Layer, Layer)) # reduced Delta matrix
-    a = np.zeros((Layer, Layer))
-
-    for l in range(Layer):
-        P[l, l] = -r[l]
-
-    for l in range(Layer-1):    
-        P[l+1, l] = w[l+1]*N[l]
-        d[l+1, l] = w[l+1]*sigma[l]
-        d[l, l+1] = -d[l+1, l]
-    
-    a = solve_sylvester(P, P.T, d)
-
-    # print("Residuals:")
-    # print(np.sum(np.abs(P@a + a@P.T - d)))
-
-    Phi = np.zeros(Layer) # flux
-    HR = np.zeros(Layer) # heat rate
-    EPR = np.zeros(Layer) # entropy production rate
-    WR = np.zeros(Layer) # work rate
-    UR = np.zeros(Layer) # internal energy rate
-
-    for l in range(1, Layer):
-        Phi[l] = N[l-1]*w[l]*a[l,l-1]
-    
-    HR = .5*N*Phi
-    EPR = -2*HR/sigma
-
-    for l in range(Layer):
-        if l == Layer-1:
-            WR[l] = 1./4*(N[l]*Phi[l])
-            UR[l] = 1./4*(N[l]*Phi[l])
-        else:
-            WR[l] = 1./4*(N[l]*Phi[l] + N[l+1]*Phi[l+1])
-            UR[l] = 1./4*(N[l]*Phi[l] - N[l+1]*Phi[l+1])
-
-    return HR, EPR, WR, UR
+    result = calculate_exact_energetics(
+        N, r, sigma, w, coupling_type="linear"
+    )
+    return (
+        result["heat"],
+        result["entropy"],
+        result["work"],
+        result["internal"],
+    )
 
 # for uniform parameters
 def total_epr_uniform_series(L, g, lam):

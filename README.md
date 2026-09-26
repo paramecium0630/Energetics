@@ -476,7 +476,7 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 | `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |
 | `output/shuffle/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定、最大 eigenvalue real part，以及最小 signed weighted in/out-strength |
 | `output/shuffle/shuffle_energetics.csv` | `n_weight_shuffles>0` | 每個 stable shuffle 的 total energetics |
-| `output/shuffle/shuffle_summary.csv` | `n_weight_shuffles>0` | trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
+| `output/shuffle/shuffle_summary.csv` | `n_weight_shuffles>0` | coupling type、shuffle mode、`GLOBAL`/`LAYER` scope、輸入檔案、trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
 
 一般輸出 (`node.csv`、`edge.csv`、`mean.csv`、`correlation.csv`、`energetics*.csv`) 第一行是文字標題、第二行才是欄名，因此 pandas 要使用：
 

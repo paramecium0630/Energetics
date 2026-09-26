@@ -17,8 +17,8 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-# directory = "input/mnist256x1_self10"
-directory = "/home/para/Python/FCNN/output/parameters"
+directory = "input/uniform/mnist256x3_self"
+# directory = "/home/para/Python/FCNN/input/uniform/mnist256x1_self1"
 
 base_dir = Path("/home/para/Fortran/Energetics")
 
@@ -276,12 +276,6 @@ strength_statistics = pd.DataFrame(
     ]
 )
 
-print()
-print("Node-strength summary for all layers")
-print("------------------------------------")
-print(strength_statistics.round(6).to_string(index=False))
-
-
 # -----------------------------------------------------------------------------
 # 11. 準備所有 weights 的繪圖資料
 # -----------------------------------------------------------------------------
@@ -323,6 +317,9 @@ for connection in connection_pairs.itertuples(index=False):
     edge_count = connection_weights.size
     mean_weight = connection_weights.mean()
     standard_deviation = connection_weights.std()
+    weight_square_sum = np.square(connection_weights).sum()
+    mean_square_weight = weight_square_sum / edge_count
+    rms_weight = np.sqrt(mean_square_weight)
     minimum_weight = connection_weights.min()
     median_weight = connection_weights.median()
     maximum_weight = connection_weights.max()
@@ -346,6 +343,9 @@ for connection in connection_pairs.itertuples(index=False):
         "connection_density": connection_density,
         "mean": mean_weight,
         "standard_deviation": standard_deviation,
+        "weight_square_sum": weight_square_sum,
+        "mean_square_weight": mean_square_weight,
+        "rms_weight": rms_weight,
         "minimum": minimum_weight,
         "median": median_weight,
         "maximum": maximum_weight,
@@ -371,6 +371,9 @@ weight_columns_for_terminal = [
     "edge_count",
     "mean",
     "standard_deviation",
+    "weight_square_sum",
+    "mean_square_weight",
+    "rms_weight"
 ]
 
 weight_summary_for_terminal = weight_statistics[
@@ -584,14 +587,14 @@ bias_summary_for_terminal = bias_statistics[
 
 print(bias_summary_for_terminal.to_string(index=False))
 
-print()
-print(
-    "Bias records:",
-    number_of_listed_biases,
-    "listed and",
-    number_of_unlisted_biases,
-    "default zeros",
-)
+# print()
+# print(
+#     "Bias records:",
+#     number_of_listed_biases,
+#     "listed and",
+#     number_of_unlisted_biases,
+#     "default zeros",
+# )
 
 
 # -----------------------------------------------------------------------------
@@ -632,7 +635,7 @@ weight_histogram_axis.text(
 # 不同 layer connections 的 weight boxplot。
 weight_boxplot_axis.boxplot(
     weight_values_for_boxplot,
-    tick_labels=boxplot_labels,
+    labels=boxplot_labels,
     showfliers=False,
 )
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -669,7 +672,7 @@ bias_histogram_axis.text(
 # 各 non-input topology layer 的完整 bias boxplot。
 bias_boxplot_axis.boxplot(
     bias_values_for_boxplot,
-    tick_labels=bias_boxplot_labels,
+    labels=bias_boxplot_labels,
     showfliers=False,
 )
 bias_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -812,35 +815,47 @@ def plot_laplace_fit(values, parameter, layer_label):
 # for label, values in zip(bias_boxplot_labels, bias_values_for_boxplot):
 #     plot_laplace_fit(values, "bias", label)
 
-laplace_statistics = pd.DataFrame(laplace_rows)
-print("Laplace fits (mean-centered; b is scale, not standard deviation)")
-print(laplace_statistics.to_string(index=False))
+# laplace_statistics = pd.DataFrame(laplace_rows)
+# print("Laplace fits (mean-centered; b is scale, not standard deviation)")
+# print(laplace_statistics.to_string(index=False))
 
-# Excel 用的 Tab 分隔表格：weight L1/L2 指連接 1->2 / 2->3，
-# bias L2/L3 指節點所在層。沿用上述統計的樣本標準差（ddof=1）。
-excel_headers = [
-    "Mean weight (L1)", "Std weight (L1)",
-    "Mean weight (L2)", "Std weight (L2)",
-    "Mean bias (L2)", "Std bias (L2)",
-    "Mean bias (L3)", "Std bias (L3)",
-]
+# Excel 用的 Tab 分隔表格。根據實際 topology 動態加入所有
+# layer connections 與所有 non-input layers，避免切換網路深度後
+# header 和數值錯位。standard deviation 使用 sample std（ddof=1）。
+excel_headers = []
 excel_values = []
-for source, target in [(1, 2), (2, 3)]:
-    row = weight_statistics[
-        (weight_statistics["source_layer"] == source)
-        & (weight_statistics["target_layer"] == target)
-    ]
-    excel_values.extend(
-        row.iloc[0][["mean", "standard_deviation"]].tolist()
-        if not row.empty else [np.nan, np.nan]
+
+for row in weight_statistics.itertuples(index=False):
+    connection_label = (
+        f"L{row.source_layer}->L{row.target_layer}"
     )
-for layer in [2, 3]:
-    row = bias_statistics[bias_statistics["layer"] == layer]
+    excel_headers.extend([
+        f"Mean weight ({connection_label})",
+        f"Std weight ({connection_label})",
+    ])
     excel_values.extend(
-        row.iloc[0][["mean", "standard_deviation"]].tolist()
-        if not row.empty else [np.nan, np.nan]
+        [row.mean, row.standard_deviation]
     )
-print(f"\nExcel table: {directory} (sample std, ddof=1)")
+
+for row in bias_statistics.itertuples(index=False):
+    if row.layer == 1:
+        continue
+
+    excel_headers.extend([
+        f"Mean bias (L{row.layer})",
+        f"Std bias (L{row.layer})",
+    ])
+    excel_values.extend(
+        [row.mean, row.standard_deviation]
+    )
+
+print()
+print("Node-strength summary for all layers")
+print("------------------------------------")
+print(strength_statistics.round(8).to_string(index=False))
+print()
+print("Weight and bias summary by layer")
+print("------------------------------------")
 print("\t".join(excel_headers))
 print("\t".join(f"{value:.10g}" for value in excel_values))
 

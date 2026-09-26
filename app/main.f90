@@ -107,7 +107,7 @@ program main
       call generate_er(param, adj_matrix, W)
 
     case("FCNN")      
-      n_hidden = 1
+      n_hidden = 3
       allocate(layer_sizes(n_hidden+2))      
       allocate(w_mean_by_connection(n_hidden+1))
       allocate(w_std_by_connection(n_hidden+1))
@@ -118,22 +118,23 @@ program main
       ! Gaussian weight distribution for each adjacent layer connection.
       ! Setting a standard deviation to zero gives a delta distribution.
       w_mean_by_connection = [ &
-      0.031423203, 0.210853791]
+      0.025752, 0.043977, 0.043761, 0.131395]
 
       w_std_by_connection = [ &
-      0.0_dp, 0.0_dp]
+      0.025750481_dp, 0.043862444_dp, 0.043662719_dp, 0.131418339_dp]
+      w_std_by_connection=0
 
       r_by_layer = [ &
-      10.0_dp, 10.0_dp, 10.0_dp]
+      10.0_dp, 10.0_dp, 10.0_dp, 10.0_dp, 10.0_dp]
 
       sigma_by_layer = [ &
-      1.0_dp, 1.0_dp, 1.0_dp]
+      1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp]
 
       param%N = sum(layer_sizes)
       param%directed = .true.
       call generate_FCNN( &
       param, n_hidden, layer_sizes, &
-      w_mean_by_connection, w_std_by_connection, &
+      -w_mean_by_connection, w_std_by_connection, &
       adj_matrix, W)
       call assign_node_layers(layer_sizes, node_layer)
       is_fcnn_network = .true.

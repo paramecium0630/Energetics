@@ -1,7 +1,7 @@
 import numpy as np
 from pathlib import Path
-from scipy.linalg import solve_sylvester
 import matplotlib.pyplot as plt
+from epr_formula import calculate_exact_energetics
 
 current_dir = Path(__file__).resolve().parent
 parent_dir = current_dir.parent
@@ -28,61 +28,6 @@ w = np.array([0.0, 1.0, 1.0, 1.0], dtype=float)
 # Coupling model: "diffusive" for sum_j W_ij (x_j - x_i),
 #                 "linear"    for sum_j W_ij x_j.
 coupling_type = "linear"
-
-def calculate_exact_energetics(N, r, sigma, w, coupling_type="diffusive"):
-    L = N.size
-
-    if coupling_type == "diffusive":
-        lam = -r.copy()
-        lam[1:] -= N[:-1] * w[1:]
-    elif coupling_type == "linear":
-        lam = -r.copy()
-    else:
-        raise ValueError("coupling_type must be 'diffusive' or 'linear'")
-
-    b = np.zeros(L, dtype=float)
-    b[1:] = N[:-1] * w[1:]
-
-    d = np.zeros((L, L), dtype=float)
-
-    for l in range(1, L):
-        d[l, l - 1] = sigma[l - 1] * w[l]
-        d[l - 1, l] = -d[l, l - 1]
-
-    B = np.diag(lam)
-    B[np.arange(1, L), np.arange(L - 1)] = b[1:]
-
-    a_exact = solve_sylvester(B, B.T, d)
-    a_exact = 0.5 * (a_exact - a_exact.T)
-
-    assert np.allclose(B @ a_exact + a_exact @ B.T, d)
-
-    I = np.zeros(L + 1, dtype=float)
-
-    for l in range(1, L):
-        I[l] = N[l - 1] * w[l] * a_exact[l, l - 1]
-
-    I_l = I[:-1]
-    I_next = I[1:]
-    N_next = np.zeros(L, dtype=float)
-    N_next[:-1] = N[1:]
-
-    heat = 0.5 * N * I_l
-    entropy = -N * I_l / sigma
-    work = 0.25 * (N * I_l + N_next * I_next)
-    internal = 0.25 * (N * I_l - N_next * I_next)
-
-    assert np.allclose(heat - work, internal)
-
-    return {
-        "lambda": lam,
-        "a": a_exact,
-        "I": I,
-        "heat": heat,
-        "entropy": entropy,
-        "work": work,
-        "internal": internal,
-    }
 
 # result = calculate_exact_energetics(
 #         N,

@@ -45,4 +45,21 @@ contains
 
     end function rand_normal
 
+    subroutine shuffle_real_values(values)
+        ! In-place Fisher-Yates permutation of a real array.
+        real(dp), intent(inout) :: values(:)
+
+        integer :: k, random_index
+        real(dp) :: temp
+
+        do k = size(values), 2, -1
+            random_index = 1 + int(rand_uniform() * real(k, dp))
+
+            temp = values(k)
+            values(k) = values(random_index)
+            values(random_index) = temp
+        end do
+
+    end subroutine shuffle_real_values
+
 end module random_mod

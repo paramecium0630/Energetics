@@ -177,8 +177,7 @@ contains
         real(dp), intent(inout) :: W(:,:)
 
         integer :: n, n_edges
-        integer :: i, j, k, random_index, edge_index
-        real(dp) :: temp
+        integer :: i, j, edge_index
         real(dp), allocatable :: edge_weights(:)
 
         n = size(W, 1)
@@ -210,14 +209,7 @@ contains
             end do
         end do
 
-        ! Fisher-Yates shuffle
-        do k = n_edges, 2, -1
-            random_index = 1 + int(rand_uniform() * real(k, dp))
-
-            temp = edge_weights(k)
-            edge_weights(k) = edge_weights(random_index)
-            edge_weights(random_index) = temp
-        end do
+        call shuffle_real_values(edge_weights)
 
         ! 將排列後的權重放回相同的 topology
         edge_index = 0
@@ -240,7 +232,6 @@ contains
     integer :: source_layer, target_layer
     integer :: source_node, target_node
     integer :: edge_index, n_edges
-    integer :: k, random_index
     logical, intent(in) :: adj_matrix(:,:)
     integer, intent(in) :: node_layer(:)
     real(dp), intent(inout) :: W(:,:)
@@ -249,8 +240,6 @@ contains
     integer, allocatable :: source_indices(:)
     integer, allocatable :: target_indices(:)
     real(dp), allocatable :: edge_weights(:)
-
-    real(dp) :: temp
 
     n = size(W, 1)
 
@@ -320,15 +309,7 @@ contains
                 end do
             end do
 
-            ! Fisher-Yates shuffle。
-            do k = n_edges, 2, -1
-                random_index = 1 + &
-                int(rand_uniform() * real(k, dp))
-
-                temp = edge_weights(k)
-                edge_weights(k) = edge_weights(random_index)
-                edge_weights(random_index) = temp
-            end do
+            call shuffle_real_values(edge_weights)
 
             ! 放回同一組 layer connection。
             do edge_index = 1, n_edges

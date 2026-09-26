@@ -1,6 +1,6 @@
 module shuffle_mod
     use precision_mod
-    use random_mod, only : initialize_seed, rand_uniform
+    use random_mod, only : initialize_seed, shuffle_real_values
     use network_mod, only : &
     shuffle_FCNN_weights, &
     shuffle_fcnn_weights_by_layer
@@ -420,13 +420,16 @@ contains
     end if
 
     write(summary_unit, '(A)') &
-        "coupling_type,shuffle_mode,network_file,bias_file," // &
+        "coupling_type,shuffle_mode,shuffle_scope," // &
+        "network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
         "original_min_kappa_out,original_max_real_part"
 
-    write(summary_unit, '(A,",",A,",",A,",",A,",",*(G0,:,","))') &
+    write(summary_unit, &
+        '(A,",",A,",",A,",",A,",",A,",",*(G0,:,","))') &
         trim(adjustl(coupling_type)), trim(adjustl(shuffle_mode)), &
+        trim(adjustl(shuffle_scope)), &
         trim(network_file), trim(bias_file), &
         n_shuffle, n_stable, n_marginal, n_unstable, &
         original_total_entropy, original_min_kappa_in, &
@@ -651,22 +654,13 @@ contains
         ! Preserve the network-wide bias multiset while allowing values
         ! to move between any nodes, including nodes in different layers.
         real(dp), intent(inout) :: bias(:)
-        integer :: n, k, random_index
-        real(dp) :: temp
+        integer :: n
 
         n = size(bias)
 
         if (n <= 0) error stop "Bias shuffle requires at least one node"
 
-        ! One network-wide Fisher-Yates shuffle.
-        do k = n, 2, -1
-            random_index = 1 + &
-                int(rand_uniform() * real(k, dp))
-
-            temp = bias(k)
-            bias(k) = bias(random_index)
-            bias(random_index) = temp
-        end do
+        call shuffle_real_values(bias)
 
     end subroutine shuffle_bias_values
 
@@ -675,12 +669,11 @@ contains
     real(dp), intent(inout) :: bias(:)
     integer, intent(in) :: node_layer(:)
     integer :: n, n_layers
-    integer :: layer, i, k
+    integer :: layer, i
     integer :: n_nodes_in_layer
-    integer :: random_index
 
     integer, allocatable :: layer_nodes(:)
-    real(dp) :: temp
+    real(dp), allocatable :: layer_values(:)
 
     n = size(bias)
     if (size(bias) <= 0) then
@@ -704,23 +697,18 @@ contains
         if (n_nodes_in_layer <= 1) cycle
 
         allocate(layer_nodes(n_nodes_in_layer))
+        allocate(layer_values(n_nodes_in_layer))
 
         layer_nodes = pack( &
         [(i, i = 1, n)], &
         node_layer == layer)
 
-        ! 只交換這個 layer 中的 bias。
-        do k = n_nodes_in_layer, 2, -1
-            random_index = 1 + &
-            int(rand_uniform() * real(k, dp))
-
-            temp = bias(layer_nodes(k))
-            bias(layer_nodes(k)) = &
-            bias(layer_nodes(random_index))
-            bias(layer_nodes(random_index)) = temp
-        end do
+        layer_values = bias(layer_nodes)
+        call shuffle_real_values(layer_values)
+        bias(layer_nodes) = layer_values
 
         deallocate(layer_nodes)
+        deallocate(layer_values)
 
     end do
 
