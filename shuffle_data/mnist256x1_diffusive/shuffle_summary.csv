@@ -1,0 +1,2 @@
+coupling_type,shuffle_mode,shuffle_scope,network_file,bias_file,n_requested,n_stable,n_marginal,n_unstable,original_entropy,original_min_kappa_in,original_min_kappa_out,original_max_real_part,original_max_kappa_in,original_max_kappa_out,shuffle_seed
+DIFFUSIVE,WEIGHT,LAYER,input/uniform/mnist256x1_self1/weighted_matrix.dat,input/uniform/mnist256x1_self1/bias.dat,1000,993,0,7,15.78955944555526,-5.122781384270638,-2.265487609140109,-4.877218615729362,5.988715197483543,2.550596667970240,1001

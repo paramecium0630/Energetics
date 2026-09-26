@@ -5,6 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from energetics_io import read_node_energetics
 
 # -----------------------------------------------------------------------------
 # 1. 設定檔案位置
@@ -12,11 +13,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-INPUT_FILE = (
-    PROJECT_ROOT
-    / "shuffle_data" / "mnist256x1_self2_diffusive"
-    / "energetics_theory_by_node_and_layer.csv"
-)
+INPUT_FILE = PROJECT_ROOT / "output" / "energetics_theory.csv"
 
 FIGURE_DIR = PROJECT_ROOT / "figure"
 
@@ -35,8 +32,8 @@ if not INPUT_FILE.exists():
         "Run the Fortran program with an FCNN first."
     )
 
-# 第一行是文字標題，所以使用 skiprows=1。
-energetics = pd.read_csv(INPUT_FILE, skiprows=1)
+# 支援新六欄格式及封存的舊格式。
+energetics = read_node_energetics(INPUT_FILE)
 
 # 移除欄位名稱前後可能存在的空白。
 energetics.columns = energetics.columns.str.strip()

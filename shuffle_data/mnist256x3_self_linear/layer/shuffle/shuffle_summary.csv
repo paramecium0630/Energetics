@@ -1,2 +1,0 @@
-coupling_type,shuffle_mode,network_file,bias_file,n_requested,n_stable,n_marginal,n_unstable,original_entropy,original_min_kappa_in,original_min_kappa_out,original_max_real_part
-LINEAR,WEIGHT,input/uniform/mnist256x3_self/weighted_matrix.dat,input/uniform/mnist256x3_self/bias.dat,1000,1000,0,0,21.56113509624981,-4.377860820088245,-1.571921445312910,-10.00000000000000

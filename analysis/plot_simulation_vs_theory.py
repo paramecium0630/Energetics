@@ -5,32 +5,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from energetics_io import read_node_energetics
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "output"
 FIGURE_DIR = PROJECT_ROOT / "figure"
 FIGURE_FILE = FIGURE_DIR / "simulation_theory_comparison.png"
-
-# Plotting every covariance element is expensive for a large FCNN. Error
-# statistics still use every finite element; only displayed points are sampled.
-MAX_SCATTER_POINTS = 200_000
-RANDOM_SEED = 12345
-
-
-def read_output_csv(filename):
-    """Read a project CSV whose first line is a descriptive title."""
-    path = OUTPUT_DIR / filename
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Cannot find {path}. Run the Fortran simulation first."
-        )
-
-    data = pd.read_csv(path, skiprows=1)
-    data.columns = data.columns.str.strip()
-    return data
-
 
 def require_columns(data, columns, filename):
     """Raise a readable error if an output file has an old schema."""
@@ -73,7 +54,7 @@ def plot_comparison(
     y_plot = y_all
 
     if max_points is not None and x_all.size > max_points:
-        rng = np.random.default_rng(RANDOM_SEED)
+        rng = np.random.default_rng(12345)
         selected = rng.choice(x_all.size, size=max_points, replace=False)
         x_plot = x_all[selected]
         y_plot = y_all[selected]
@@ -133,11 +114,8 @@ def plot_comparison(
 # Read and validate output
 # -----------------------------------------------------------------------------
 
-simulation = read_output_csv("energetics.csv")
-theory = read_output_csv("energetics_theory.csv")
-nodes = read_output_csv("node.csv")
-means = read_output_csv("mean.csv")
-correlation = read_output_csv("correlation.csv")
+simulation = read_node_energetics(OUTPUT_DIR / "energetics_simulation.csv")
+theory = read_node_energetics(OUTPUT_DIR / "energetics_theory.csv")
 
 energetics_fields = [
     "heat_rate",
@@ -146,36 +124,20 @@ energetics_fields = [
     "internal_rate",
 ]
 
-require_columns(simulation, ["node", *energetics_fields], "energetics.csv")
+require_columns(simulation, ["node", *energetics_fields], "energetics_simulation.csv")
 require_columns(theory, ["node", *energetics_fields], "energetics_theory.csv")
-require_columns(nodes, ["Node Index", "fixpoint"], "node.csv")
-require_columns(means, ["Node", "<x>"], "mean.csv")
-require_columns(
-    correlation,
-    ["target", "source", "K0", "K0_theory"],
-    "correlation.csv",
-)
-
-energetics = theory[["node", *energetics_fields]].merge(
-    simulation[["node", *energetics_fields]],
-    on="node",
+energetics = theory[["node", "layer", *energetics_fields]].merge(
+    simulation[["node", "layer", *energetics_fields]],
+    on=["node", "layer"],
     suffixes=("_theory", "_simulation"),
     validate="one_to_one",
 )
 
-state = nodes[["Node Index", "fixpoint"]].merge(
-    means[["Node", "<x>"]],
-    left_on="Node Index",
-    right_on="Node",
-    validate="one_to_one",
-)
+if len(energetics) != len(theory) or len(energetics) != len(simulation):
+    raise ValueError("Theory and simulation node/layer IDs do not match")
 
-
-# -----------------------------------------------------------------------------
-# Draw one 2 x 3 comparison figure
-# -----------------------------------------------------------------------------
-
-figure, axes = plt.subplots(2, 3, figsize=(15, 10))
+# Only energetics is written by the current Fortran output flow.
+figure, axes = plt.subplots(2, 2, figsize=(12, 10))
 
 plot_settings = [
     ("heat_rate", "Heat rate", "tab:red"),
@@ -194,27 +156,6 @@ for ax, (field, title, color) in zip(axes.flat[:4], plot_settings):
         "Simulation",
         color,
     )
-
-plot_comparison(
-    axes.flat[4],
-    state["fixpoint"],
-    state["<x>"],
-    "Steady-state mean",
-    r"Fixed point $x^*$",
-    r"Simulation mean $\langle x \rangle$",
-    "tab:purple",
-)
-
-plot_comparison(
-    axes.flat[5],
-    correlation["K0_theory"],
-    correlation["K0"],
-    "Zero-lag covariance",
-    r"Theory $K_0$",
-    r"Simulation $K_0$",
-    "tab:brown",
-    max_points=MAX_SCATTER_POINTS,
-)
 
 figure.suptitle("Simulation versus theory", fontsize=16)
 figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))

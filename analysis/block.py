@@ -5,6 +5,8 @@ import pandas as pd
 from scipy.linalg import solve_sylvester
 import matplotlib.pyplot as plt
 import epr_formula as ef
+from energetics_io import read_node_energetics
+from pathlib import Path
 
 plt.style.use('science')
 
@@ -54,20 +56,10 @@ ur_theory = 0.25 * (flux - next_flux)
 
 ##############################
 
-node_data = \
-    pd.read_csv('/home/para/Fortran/Energetics/output/node.csv',
-        skiprows=1)
-energetics_data = \
-    pd.read_csv('/home/para/Fortran/Energetics/output/energetics.csv',
-        skiprows=1)
-node_data.columns = node_data.columns.str.strip()
-energetics_data.columns = energetics_data.columns.str.strip()
-
-layer = node_data['layer']
-energetics = energetics_data[['heat_rate', 'entropy_rate', 
-                            'work_rate', 'internal_rate']]
-
-layer_energetics = pd.concat([layer, energetics], axis=1)
+# The node-to-layer mapping is now included in each energetics row.
+layer_energetics = read_node_energetics(
+    Path(__file__).resolve().parents[1] / "output" / "energetics_simulation.csv"
+)
 
 ##############################
 

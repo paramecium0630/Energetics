@@ -1,4 +1,7 @@
 module shuffle_mod
+    use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_quiet_nan
+    use energetics_mod, only : aggregate_layer_energetics
+    use output_mod, only : write_node_layers
     use precision_mod
     use random_mod, only : initialize_seed, shuffle_real_values
     use network_mod, only : &
@@ -27,8 +30,8 @@ contains
     n_shuffle, shuffle_seed, &
     fixedpoint_tolerance, fixedpoint_max_iterations, &
     original_total_entropy, original_max_real_part, &
-    stability_filename, energetics_filename, &
-    summary_filename)
+    trials_filename, layers_filename, &
+    summary_filename, node_layers_filename, original_node_rates)
 
     logical, intent(in) :: adj_matrix(:, :)
     integer, intent(in) :: node_layer(:)
@@ -38,6 +41,8 @@ contains
     real(dp), intent(in) :: noise(:, :)
     character(len=*), intent(in) :: coupling_type, shuffle_mode, shuffle_scope
     character(len=*), intent(in) :: network_file, bias_file
+    ! Columns: HR, EPR, WR, UR of the already-computed original node solution.
+    real(dp), intent(in) :: original_node_rates(:, :)
     real(dp), intent(in) :: original_total_entropy
     real(dp), intent(in) :: original_max_real_part
 
@@ -49,12 +54,12 @@ contains
     real(dp), intent(in) :: fixedpoint_tolerance
     integer, intent(in) :: fixedpoint_max_iterations
 
-    character(len=*), intent(in) :: stability_filename, energetics_filename, &
-        summary_filename
+    character(len=*), intent(in) :: trials_filename, layers_filename, &
+        summary_filename, node_layers_filename
 
     integer :: n, i
     integer :: shuffle_id
-    integer :: stability_unit, energetics_unit, summary_unit
+    integer :: trials_unit, layers_unit, summary_unit
     integer :: io_status
     integer :: n_stable, n_marginal, n_unstable
 
@@ -83,7 +88,11 @@ contains
     logical :: check_weight_distribution
     logical :: check_bias_distribution
 
-    real(dp) :: total_entropy_trial
+    integer :: layer, n_layers
+    integer, allocatable :: layer_counts(:)
+    real(dp), allocatable :: layer_heat(:), layer_work(:), layer_internal(:), layer_entropy(:)
+    real(dp) :: max_kappa_in, max_kappa_out, original_max_kappa_in, original_max_kappa_out
+    real(dp) :: missing_rate
 
     n = size(W_original, 1)
 
@@ -127,9 +136,24 @@ contains
         error stop "node_layer and network size mismatch"
     end if
 
-    if (any(node_layer <= 0)) then
+    if (any(node_layer <= 0) .or. any(node_layer > n)) then
         error stop "Layer shuffle requires positive layer indices"
     end if
+
+    if (size(original_node_rates, 1) /= n .or. size(original_node_rates, 2) /= 4) &
+        error stop "Original node energetics must have shape (N,4)"
+    if (abs(sum(original_node_rates(:, 2)) - original_total_entropy) > &
+        1.0e-10_dp * max(1.0_dp, sum(abs(original_node_rates(:, 2))))) &
+        error stop "Original node EPR disagrees with summary total"
+
+    n_layers = maxval(node_layer)
+    allocate(layer_counts(n_layers))
+    layer_counts = 0
+    do i = 1, n
+        layer_counts(node_layer(i)) = layer_counts(node_layer(i)) + 1
+    end do
+    if (any(layer_counts == 0)) error stop "Empty FCNN layer"
+    missing_rate = ieee_value(0.0_dp, ieee_quiet_nan)
 
     select case (trim(adjustl(shuffle_scope)))
     case ("GLOBAL", "LAYER")
@@ -176,11 +200,13 @@ contains
         error stop "shuffle_mod currently requires triangular FCNN Q"
     end if
 
-    if (len_trim(stability_filename) == 0 .or. &
-        len_trim(energetics_filename) == 0 .or. &
-        len_trim(summary_filename) == 0) then
+    if (len_trim(trials_filename) == 0 .or. &
+        len_trim(layers_filename) == 0 .or. &
+        len_trim(summary_filename) == 0 .or. len_trim(node_layers_filename) == 0) then
         error stop "Shuffle output filenames must not be empty"
     end if
+
+    call write_node_layers(node_layers_filename, node_layer)
 
     ! Allocate reusable arrays
     allocate(W_trial(n, n))
@@ -198,6 +224,8 @@ contains
     end do
     original_min_kappa_in = minval(kappa_in)
     original_min_kappa_out = minval(kappa_out)
+    original_max_kappa_in = maxval(kappa_in)
+    original_max_kappa_out = maxval(kappa_out)
 
     ! Constant Lyapunov right-hand side
     rhs = -noise
@@ -206,8 +234,8 @@ contains
     call initialize_seed(shuffle_seed)
 
     open( &
-    newunit=stability_unit, &
-    file=trim(stability_filename), &
+    newunit=trials_unit, &
+    file=trim(trials_filename), &
     status="replace", &
     action="write", &
     iostat=io_status)
@@ -216,12 +244,12 @@ contains
         error stop "Cannot open shuffle stability output"
     end if
 
-    write(stability_unit, '(A)') &
-    "shuffle_id,status,max_real_part,min_kappa_in,min_kappa_out"
+    write(trials_unit, '(A)') &
+    "id,stability,max_real_part,max_kappa_in,min_kappa_in,max_kappa_out,min_kappa_out"
 
     open( &
-    newunit=energetics_unit, &
-    file=trim(energetics_filename), &
+    newunit=layers_unit, &
+    file=trim(layers_filename), &
     status="replace", &
     action="write", &
     iostat=io_status)
@@ -230,9 +258,19 @@ contains
         error stop "Cannot open shuffle energetics output"
     end if
 
-    write(energetics_unit, '(A)') &
-    "shuffle_id,max_real_part,total_entropy," // &
-    "total_heat,total_work,total_internal"
+    write(layers_unit, '(A)') &
+    "id,Layer,node_count,HR_total,EPR_total,WR_total,UR_total"
+
+    ! id=0 is the unshuffled reference, not a member of the shuffle ensemble.
+    ! Reuse the original solution rather than solving another Lyapunov equation.
+    call aggregate_layer_energetics( &
+        node_layer, original_node_rates(:, 1), original_node_rates(:, 3), &
+        original_node_rates(:, 4), original_node_rates(:, 2), &
+        layer_counts, layer_heat, layer_work, layer_internal, layer_entropy)
+    do layer = 1, n_layers
+        write(layers_unit, '(*(G0,:,","))') 0, layer, layer_counts(layer), &
+            layer_heat(layer), layer_entropy(layer), layer_work(layer), layer_internal(layer)
+    end do
 
     n_stable = 0
     n_marginal = 0
@@ -323,6 +361,8 @@ contains
     end do
     min_kappa_in = minval(kappa_in)
     min_kappa_out = minval(kappa_out)
+    max_kappa_in = maxval(kappa_in)
+    max_kappa_out = maxval(kappa_out)
 
     ! 所有 shuffle 使用相同的 r 與 noise。TANH 必須先用 trial
     ! weights/bias 解新固定點，再於該固定點建立 Jacobian。
@@ -352,20 +392,29 @@ contains
 
         n_unstable = n_unstable + 1
 
-        write(stability_unit, '(*(G0,:,","))') &
+        write(trials_unit, '(*(G0,:,","))') &
             shuffle_id, "unstable", &
-            max_real_part, min_kappa_in, min_kappa_out
+            max_real_part, max_kappa_in, min_kappa_in, max_kappa_out, min_kappa_out
 
+        ! No stationary energetics exists: keep the trial/layer rows as NaN.
+        do layer = 1, n_layers
+            write(layers_unit, '(*(G0,:,","))') shuffle_id, layer, layer_counts(layer), &
+                missing_rate, missing_rate, missing_rate, missing_rate
+        end do
         cycle
 
     else if (max_real_part >= -stability_tol) then
 
         n_marginal = n_marginal + 1
 
-        write(stability_unit, '(*(G0,:,","))') &
+        write(trials_unit, '(*(G0,:,","))') &
             shuffle_id, "marginal", &
-            max_real_part, min_kappa_in, min_kappa_out
+            max_real_part, max_kappa_in, min_kappa_in, max_kappa_out, min_kappa_out
 
+        do layer = 1, n_layers
+            write(layers_unit, '(*(G0,:,","))') shuffle_id, layer, layer_counts(layer), &
+                missing_rate, missing_rate, missing_rate, missing_rate
+        end do
         cycle
 
     end if
@@ -373,9 +422,9 @@ contains
     ! 只有到這裡的網路才是 stable
     n_stable = n_stable + 1
 
-    write(stability_unit, '(*(G0,:,","))') &
+    write(trials_unit, '(*(G0,:,","))') &
         shuffle_id, "stable", &
-        max_real_part, min_kappa_in, min_kappa_out
+        max_real_part, max_kappa_in, min_kappa_in, max_kappa_out, min_kappa_out
 
     ! Solve steady-state covariance
     call solve_lyapunov_triangular_blocked( &
@@ -393,20 +442,19 @@ contains
     heat_trial, work_trial, &
     internal_trial, entropy_trial)
 
-    total_entropy_trial = sum(entropy_trial)
-
-    ! Write total energetics of this stable network
-    write(energetics_unit, '(*(G0,:,","))') &
-    shuffle_id, max_real_part, &
-    total_entropy_trial, &
-    sum(heat_trial), &
-    sum(work_trial), &
-    sum(internal_trial)
+    ! Aggregate the existing node solution once; do not solve a reduced model.
+    call aggregate_layer_energetics( &
+        node_layer, heat_trial, work_trial, internal_trial, entropy_trial, &
+        layer_counts, layer_heat, layer_work, layer_internal, layer_entropy)
+    do layer = 1, n_layers
+        write(layers_unit, '(*(G0,:,","))') shuffle_id, layer, layer_counts(layer), &
+            layer_heat(layer), layer_entropy(layer), layer_work(layer), layer_internal(layer)
+    end do
 
     end do
 
-    close(stability_unit)
-    close(energetics_unit)
+    close(trials_unit)
+    close(layers_unit)
 
     open( &
     newunit=summary_unit, &
@@ -424,7 +472,8 @@ contains
         "network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
-        "original_min_kappa_out,original_max_real_part"
+        "original_min_kappa_out,original_max_real_part," // &
+        "original_max_kappa_in,original_max_kappa_out,shuffle_seed"
 
     write(summary_unit, &
         '(A,",",A,",",A,",",A,",",A,",",*(G0,:,","))') &
@@ -433,7 +482,8 @@ contains
         trim(network_file), trim(bias_file), &
         n_shuffle, n_stable, n_marginal, n_unstable, &
         original_total_entropy, original_min_kappa_in, &
-        original_min_kappa_out, original_max_real_part
+        original_min_kappa_out, original_max_real_part, &
+        original_max_kappa_in, original_max_kappa_out, shuffle_seed
 
     close(summary_unit)
 

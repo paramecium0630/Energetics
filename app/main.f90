@@ -56,6 +56,7 @@ program main
     real(dp), allocatable :: heat_rate_theory(:), work_rate_theory(:)
     real(dp), allocatable :: internal_rate_theory(:), entropy_rate_theory(:)
 
+
     type(SimulationParameters) :: param
     type(StatisticsState) :: stat
     type(EnergeticsState) :: energy
@@ -296,21 +297,14 @@ program main
     end if
     print *, "max |F(x*)| =", max_force_at_fixedpoint
 
-    if (is_fcnn_network) then
-      call write_node_results( &
-        'output/node.csv', r, noise, fixpoint, bias, node_layer)
-    else
-      call write_node_results( &
-        'output/node.csv', r, noise, fixpoint, bias)
+    ! Node output uses layer 0 for networks without an FCNN layer assignment.
+    if (.not. is_fcnn_network) then
+      if (allocated(node_layer)) deallocate(node_layer)
+      allocate(node_layer(param%N))
+      node_layer = 0
     end if
-
-    if (trim(adjustl(param%graph_type)) /= "EXTERNAL") then
-      call write_edge_results('output/edge.csv', W, adj_matrix)
-    else
-      print *, "Skip edge.csv: network was read from an external file."
-    end if
-
-    call record_wall_step("Write network output", wall_step_start, wall_clock_rate)
+    call execute_command_line('mkdir -p output', exitstat=i)
+    if (i /= 0) error stop "Cannot create output directory"
 
     ! Theory
     if (q_is_upper .or. q_is_lower) then
@@ -408,11 +402,12 @@ program main
     ! compute alpha with Ktau
     call simulate_alpha(Ktau, param%lag_steps*param%dt, alpha_sim) ! alpha = (K_tau.T - K_tau) / tau
 
-    call write_mean_results('output/mean.csv', mean_x, mean_force)   
-    call write_correlation_results( &
-      'output/correlation.csv', K0, Ktau, K0_theory)
-    call write_energetics_results('output/energetics.csv', heat_rate, work_rate, &
-                         internal_rate, entropy_rate)
+    ! With no shuffles, retain separate theory/simulation node tables only.
+    if (param%n_weight_shuffles == 0) then
+      call write_energetics_results( &
+        'output/energetics_simulation.csv', heat_rate, work_rate, &
+        internal_rate, entropy_rate, node_layer)
+    end if
     call record_wall_step("Finalize simulation and write output", &
                           wall_step_start, wall_clock_rate)
 
@@ -450,20 +445,11 @@ program main
 
     end if
 
-    call write_energetics_results( &
-    'output/energetics_theory.csv', &
-    heat_rate_theory, work_rate_theory, &
-    internal_rate_theory, entropy_rate_theory)
-
-    if (is_fcnn_network) then
-      call write_energetics_by_node_and_layer( &
-        'output/energetics_theory_by_node_and_layer.csv', &
-        node_layer, &
-        heat_rate_theory, work_rate_theory, &
-        internal_rate_theory, entropy_rate_theory)
+    if (param%n_weight_shuffles == 0) then
+      call write_energetics_results( &
+        'output/energetics_theory.csv', heat_rate_theory, work_rate_theory, &
+        internal_rate_theory, entropy_rate_theory, node_layer)
     end if
-
-    ! call write_alpha('output/alpha.csv', alpha, alpha_sim)
 
     if (param%verify_lyapunov) then
       call compute_lyapunov_residual(Q, K0_theory, noise, &
@@ -482,6 +468,8 @@ program main
         error stop "Shuffle ensemble requires an FCNN topology"
       end if
 
+      call execute_command_line('mkdir -p output/shuffle', exitstat=i)
+      if (i /= 0) error stop "Cannot create shuffle output directory"
       call run_shuffle_ensemble( &
       adj_matrix, W, bias, &
       r, noise, param%coupling_type, param%shuffle_mode, &
@@ -491,9 +479,12 @@ program main
       param%shuffle_seed, &
       fixedpoint_tolerance, fixedpoint_max_iterations, &
       sum(entropy_rate_theory), max_real_part, &
-      "output/shuffle/shuffle_stability.csv", &
-      "output/shuffle/shuffle_energetics.csv", &
-      "output/shuffle/shuffle_summary.csv")
+      "output/shuffle/shuffle_trials.csv", &
+      "output/shuffle/shuffle_layer_energetics.csv", &
+      "output/shuffle/shuffle_summary.csv", &
+      "output/shuffle/node_layers.csv", &
+      reshape([heat_rate_theory, entropy_rate_theory, work_rate_theory, &
+               internal_rate_theory], [param%N, 4]))
 
       call record_wall_step( &
         "Shuffle ensemble", &

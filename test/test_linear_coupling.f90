@@ -9,9 +9,9 @@ program test_linear_coupling
     real(dp) :: noise(2,2), K(2,2), expected_K(2,2), max_real_part
     real(dp), allocatable :: Q(:,:), alpha(:,:), heat(:), work(:), internal(:), entropy(:)
     logical :: adjacency(2,2)
-    integer :: unit, status, trial, trial_id
+    integer :: unit, status, trial, trial_id, layer, layer_id, node_count
     integer :: node_layer(2)
-    real(dp) :: trial_eigenvalue, trial_entropy
+    real(dp) :: trial_entropy, layer_rates(4)
     character(len=512) :: line
     real(dp), parameter :: tol = 1.0e-12_dp
 
@@ -47,20 +47,32 @@ program test_linear_coupling
     call run_shuffle_ensemble(adjacency, W, bias, r, noise, "LINEAR", "BOTH", &
         "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
         .false., .true., 2, 2718, tol, 100, sum(entropy), -2.0_dp, &
-        "test_linear_stability.csv", "test_linear_energetics.csv", "test_linear_summary.csv")
+        "test_linear_stability.csv", "test_linear_energetics.csv", "test_linear_summary.csv", &
+        "test_linear_node_layers.csv", reshape([heat, entropy, work, internal], [2, 4]))
     open(newunit=unit, file="test_linear_energetics.csv", status="old")
     read(unit, '(A)') line
-    do trial = 1, 2
-        read(unit, *, iostat=status) trial_id, trial_eigenvalue, trial_entropy
-        if (status /= 0) error stop "LINEAR shuffle output missing"
-        if (trial_id /= trial .or. abs(trial_eigenvalue+2.0_dp) > tol) &
-            error stop "LINEAR shuffle identifiers or stability"
+    if (trim(line) /= "id,Layer,node_count,HR_total,EPR_total,WR_total,UR_total") &
+        error stop "LINEAR layer header"
+    do trial = 0, 2
+        trial_entropy = 0.0_dp
+        do layer = 1, 2
+            read(unit, *, iostat=status) trial_id, layer_id, node_count, layer_rates
+            if (status /= 0) error stop "LINEAR shuffle layer output missing"
+            if (trial_id /= trial .or. layer_id /= layer .or. node_count /= 1) &
+                error stop "LINEAR shuffle layer identifiers"
+            if (maxval(abs(layer_rates - &
+                [heat(layer), entropy(layer), work(layer), internal(layer)])) > tol) &
+                error stop "LINEAR shuffle layer rates"
+            trial_entropy = trial_entropy + layer_rates(2)
+        end do
         if (abs(trial_entropy-2.25_dp) > tol) error stop "LINEAR shuffle changed entropy"
     end do
     close(unit, status="delete")
     open(newunit=unit, file="test_linear_stability.csv", status="old")
     close(unit, status="delete")
     open(newunit=unit, file="test_linear_summary.csv", status="old")
+    close(unit, status="delete")
+    open(newunit=unit, file="test_linear_node_layers.csv", status="old")
     close(unit, status="delete")
     print *, "LINEAR coupling tests passed."
 end program test_linear_coupling

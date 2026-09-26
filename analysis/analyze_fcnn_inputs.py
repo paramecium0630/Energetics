@@ -17,7 +17,7 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-directory = "input/uniform/mnist256x3_self"
+directory = "input/uniform/mnist256x1_self1"
 # directory = "/home/para/Python/FCNN/input/uniform/mnist256x1_self1"
 
 base_dir = Path("/home/para/Fortran/Energetics")
@@ -258,8 +258,7 @@ if not np.isclose(total_kappa_in, total_edge_weight):
 if not np.isclose(total_kappa_out, total_edge_weight):
     raise RuntimeError("The sum of kappa_out is inconsistent with edge weights")
 
-# 目前先不依 layer 分組，而是把全部層的節點放在一起計算摘要。
-# node_strengths 仍保留每個節點所屬的 layer，之後若需要再做逐層分析。
+# 保留全網路摘要；下方另依指定層範圍計算逐層分布與極值。
 strength_statistics = pd.DataFrame(
     [
         {
@@ -281,8 +280,6 @@ strength_statistics = pd.DataFrame(
 # -----------------------------------------------------------------------------
 
 all_weight_values = weights["weight"]
-all_weight_mean = all_weight_values.mean()
-all_weight_std = all_weight_values.std(ddof=1)
 
 # -----------------------------------------------------------------------------
 # 12. 分別計算每一種 layer connection 的 weight 統計量
@@ -601,41 +598,52 @@ print(bias_summary_for_terminal.to_string(index=False))
 # 18. 畫出 weight 與 bias 的基本圖形
 # -----------------------------------------------------------------------------
 
-figure, axes = plt.subplots(2, 2, figsize=(12, 9))
-
-weight_histogram_axis = axes[0, 0]
-weight_boxplot_axis = axes[0, 1]
-bias_histogram_axis = axes[1, 0]
-bias_boxplot_axis = axes[1, 1]
-
-
-# 所有 edge weights 的 histogram。
-weight_histogram_axis.hist(
-    all_weight_values,
-    bins=60,
-    color="tab:blue",
-    alpha=0.8,
+# 每個實際存在的有向層對各畫一個 histogram；也涵蓋跨層連線。
+# 不為沒有連線的層對補零，保留輸入檔中每筆權重的正負號。
+connection_count = len(weight_statistics)
+weight_ncols = min(3, connection_count)
+weight_nrows = (connection_count + weight_ncols - 1) // weight_ncols
+weight_figure, weight_axes = plt.subplots(
+    weight_nrows, weight_ncols,
+    figsize=(5 * weight_ncols, 4 * weight_nrows),
+    sharex=True, squeeze=False,
 )
-weight_histogram_axis.axvline(0.0, color="black", linewidth=1)
-weight_histogram_axis.set_xlabel("Weight", fontsize=16)
-weight_histogram_axis.set_ylabel("Number of edges", fontsize=16)
-weight_histogram_axis.set_title("All nonzero edge weights", fontsize=16)
-weight_histogram_axis.grid(alpha=0.25)
-weight_histogram_axis.text(
-    0.03,
-    0.95,
-    f"Mean = {all_weight_mean:.6g}\nSample std = {all_weight_std:.6g}",
-    transform=weight_histogram_axis.transAxes,
-    horizontalalignment="left",
-    verticalalignment="top",
-    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
-)
+# 共用分箱與 x 軸，讓不同層對的權重範圍可直接比較。
+weight_bin_edges = np.histogram_bin_edges(all_weight_values, bins=60)
+for ax, row, values in zip(
+    weight_axes.flat,
+    weight_statistics.itertuples(index=False),
+    weight_values_for_boxplot,
+):
+    ax.hist(values, bins=weight_bin_edges, color="tab:blue", alpha=0.8)
+    ax.axvline(0.0, color="black", linewidth=1)
+    ax.set_xlabel("Weight", fontsize=16)
+    ax.set_ylabel("Number of edges", fontsize=16)
+    ax.set_title(
+        f"Layer {row.source_layer} -> Layer {row.target_layer} "
+        f"(edges={row.edge_count})"
+    )
+    ax.grid(alpha=0.25)
+    ax.text(
+        0.03, 0.95,
+        f"Mean = {row.mean:.6g}\nSample std = {row.standard_deviation:.6g}",
+        transform=ax.transAxes, ha="left", va="top",
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+    )
+for ax in list(weight_axes.flat)[connection_count:]:
+    ax.set_visible(False)
+weight_figure.suptitle("Weight distributions by layer connection")
+weight_figure.tight_layout()
+
+# 原有 weight boxplot 與 bias 圖另排成一列。
+figure, axes = plt.subplots(1, 3, figsize=(18, 4.5))
+weight_boxplot_axis, bias_histogram_axis, bias_boxplot_axis = axes
 
 
 # 不同 layer connections 的 weight boxplot。
 weight_boxplot_axis.boxplot(
     weight_values_for_boxplot,
-    labels=boxplot_labels,
+    tick_labels=boxplot_labels,
     showfliers=False,
 )
 weight_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -672,7 +680,7 @@ bias_histogram_axis.text(
 # 各 non-input topology layer 的完整 bias boxplot。
 bias_boxplot_axis.boxplot(
     bias_values_for_boxplot,
-    labels=bias_boxplot_labels,
+    tick_labels=bias_boxplot_labels,
     showfliers=False,
 )
 bias_boxplot_axis.axhline(0.0, color="black", linewidth=1)
@@ -686,74 +694,69 @@ figure.tight_layout()
 
 
 # -----------------------------------------------------------------------------
-# 19. 畫出非邊界零值節點的 kappa_in 與 kappa_out 分布
+# 19. 逐層畫出入度（2 到 L）與出度（1 到 L-1）的加權分布
 # -----------------------------------------------------------------------------
 
-# input layer 沒有 incoming edges，因此不放入 kappa_in histogram；
-# output layer 沒有 outgoing edges，因此不放入 kappa_out histogram。
-# 這裡按照 layer 排除結構上必然為零的節點，而不是以數值是否等於 0
-# 過濾，避免誤刪因正負權重剛好抵消而得到 0 的有效資料。
-first_layer = 1
+# 按層排除沒有入邊的輸入層、沒有出邊的輸出層。
+# 保留因正負權重抵消而得到的零值；加權度沿用 signed strength 定義，
+# 不取權重絕對值，也不改成計算邊數。
 last_layer = len(layers)
 
-kappa_in_values = node_strengths.loc[
-    node_strengths["layer"] != first_layer,
-    "kappa_in",
-]
-kappa_out_values = node_strengths.loc[
-    node_strengths["layer"] != last_layer,
-    "kappa_out",
-]
 
-kappa_figure, kappa_axes = plt.subplots(1, 2, figsize=(12, 4.5))
+def plot_layer_strength_distributions(column, layer_numbers, direction, color):
+    """每層各畫一個 histogram，並回傳相同資料的摘要與極值。"""
+    selected = node_strengths.loc[
+        node_strengths["layer"].isin(layer_numbers), ["layer", column]
+    ]
+    statistics = selected.groupby("layer")[column].agg(
+        node_count="size", mean="mean", sample_std="std",
+        minimum="min", maximum="max",
+    ).reset_index()
 
-kappa_in_axis = kappa_axes[0]
-kappa_in_axis.hist(
-    kappa_in_values,
-    bins=60,
-    color="tab:green",
-    alpha=0.8,
-)
-kappa_in_axis.axvline(0.0, color="black", linewidth=1)
-kappa_in_axis.set_xlabel(r"$\kappa^{\mathrm{in}}$", fontsize=16)
-kappa_in_axis.set_ylabel("Number of nodes", fontsize=16)
-kappa_in_axis.set_title(r"Non-input nodes: $\kappa^{\mathrm{in}}$")
-kappa_in_axis.grid(alpha=0.25)
-kappa_in_axis.text(
-    0.03,
-    0.95,
-    f"Mean = {kappa_in_values.mean():.6g}\n"
-    f"Sample std = {kappa_in_values.std(ddof=1):.6g}",
-    transform=kappa_in_axis.transAxes,
-    horizontalalignment="left",
-    verticalalignment="top",
-    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
-)
+    # 同一方向的各層使用共同 bin edges 與 x 軸，便於比較位置與展寬。
+    # 使用節點數作縱軸，因此不同層的 histogram 總數等於各自 N_ell。
+    bin_edges = np.histogram_bin_edges(selected[column].to_numpy(), bins=60)
+    ncols = min(3, len(statistics))
+    nrows = (len(statistics) + ncols - 1) // ncols
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(5 * ncols, 4 * nrows),
+        sharex=True, squeeze=False,
+    )
+    for ax, row in zip(axes.flat, statistics.itertuples(index=False)):
+        values = selected.loc[selected["layer"] == row.layer, column]
+        ax.hist(values, bins=bin_edges, color=color, alpha=0.8)
+        ax.axvline(0.0, color="black", linewidth=1)
+        ax.set_title(f"Layer {row.layer} (N={row.node_count})")
+        ax.set_xlabel(f"Signed {direction} weighted degree")
+        ax.set_ylabel("Number of nodes")
+        ax.grid(alpha=0.25)
+        ax.text(
+            0.03, 0.95,
+            f"Min = {row.minimum:.6g}\nMax = {row.maximum:.6g}",
+            transform=ax.transAxes, ha="left", va="top",
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+        )
+    for ax in list(axes.flat)[len(statistics):]:
+        ax.set_visible(False)
+    fig.suptitle(f"{direction.capitalize()} weighted degree by layer")
+    fig.tight_layout()
+    return statistics
 
-kappa_out_axis = kappa_axes[1]
-kappa_out_axis.hist(
-    kappa_out_values,
-    bins=60,
-    color="tab:purple",
-    alpha=0.8,
+
+in_strength_statistics = plot_layer_strength_distributions(
+    "kappa_in", range(2, last_layer + 1), "in", "tab:green"
 )
-kappa_out_axis.axvline(0.0, color="black", linewidth=1)
-kappa_out_axis.set_xlabel(r"$\kappa^{\mathrm{out}}$", fontsize=16)
-kappa_out_axis.set_ylabel("Number of nodes", fontsize=16)
-kappa_out_axis.set_title(r"Non-output nodes: $\kappa^{\mathrm{out}}$")
-kappa_out_axis.grid(alpha=0.25)
-kappa_out_axis.text(
-    0.03,
-    0.95,
-    f"Mean = {kappa_out_values.mean():.6g}\n"
-    f"Sample std = {kappa_out_values.std(ddof=1):.6g}",
-    transform=kappa_out_axis.transAxes,
-    horizontalalignment="left",
-    verticalalignment="top",
-    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+out_strength_statistics = plot_layer_strength_distributions(
+    "kappa_out", range(1, last_layer), "out", "tab:purple"
 )
 
-kappa_figure.tight_layout()
+# 分別列出所畫層範圍的極值，不混入邊界層結構上必然為零的值。
+for direction, statistics in (
+    ("In", in_strength_statistics), ("Out", out_strength_statistics)
+):
+    print()
+    print(f"{direction} weighted degree by layer (signed sum of weights)")
+    print(statistics.to_string(index=False, float_format=lambda x: f"{x:.8g}"))
 
 # -----------------------------------------------------------------------------
 # 20. 各層 Laplace 分布擬合（與 train_FCNN/extract_parameters.py 相同估計）

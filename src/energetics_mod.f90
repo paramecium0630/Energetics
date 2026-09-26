@@ -25,6 +25,7 @@ module energetics_mod
     public :: initialize_energetics
     public :: update_energetics
     public :: finalize_energetics
+    public :: aggregate_layer_energetics
 
 contains
 
@@ -150,5 +151,52 @@ contains
         energy%elapsed_time = 0.0_dp
 
     end subroutine finalize_energetics
+
+
+    subroutine aggregate_layer_energetics( &
+        node_layer, heat_rate, work_rate, internal_rate, entropy_rate, &
+        node_count, layer_heat, layer_work, layer_internal, layer_entropy)
+        ! 單次掃描節點，將節點速率加總成各層總速率；不要求節點按層排列。
+        ! 呼叫端只在已確認 FCNN 且建立 node_layer 後使用此函式。
+        integer, intent(in) :: node_layer(:)
+        real(dp), intent(in) :: heat_rate(:), work_rate(:)
+        real(dp), intent(in) :: internal_rate(:), entropy_rate(:)
+        integer, allocatable, intent(out) :: node_count(:)
+        real(dp), allocatable, intent(out) :: layer_heat(:), layer_work(:)
+        real(dp), allocatable, intent(out) :: layer_internal(:), layer_entropy(:)
+        integer :: n, n_layers, node, layer
+
+        n = size(node_layer)
+        if (n <= 0) error stop "Layer aggregation requires at least one node"
+        if (size(heat_rate) /= n .or. size(work_rate) /= n .or. &
+            size(internal_rate) /= n .or. size(entropy_rate) /= n) then
+            error stop "Layer IDs and energetic rates size mismatch"
+        end if
+        if (any(node_layer < 1) .or. any(node_layer > n)) then
+            error stop "Layer IDs must be between 1 and the node count"
+        end if
+        n_layers = maxval(node_layer)
+        allocate(node_count(n_layers))
+        allocate(layer_heat(n_layers), layer_work(n_layers))
+        allocate(layer_internal(n_layers), layer_entropy(n_layers))
+        node_count = 0
+        layer_heat = 0.0_dp
+        layer_work = 0.0_dp
+        layer_internal = 0.0_dp
+        layer_entropy = 0.0_dp
+
+        do node = 1, n
+            layer = node_layer(node)
+            node_count(layer) = node_count(layer) + 1
+            layer_heat(layer) = layer_heat(layer) + heat_rate(node)
+            layer_work(layer) = layer_work(layer) + work_rate(node)
+            layer_internal(layer) = layer_internal(layer) + internal_rate(node)
+            ! 必須加總節點 EPR，不能用層平均噪音除層總熱率。
+            layer_entropy(layer) = layer_entropy(layer) + entropy_rate(node)
+        end do
+        if (any(node_count == 0)) then
+            error stop "Layer IDs must be consecutive with no empty layers"
+        end if
+    end subroutine aggregate_layer_energetics
 
 end module energetics_mod

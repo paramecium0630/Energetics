@@ -178,28 +178,42 @@ contains
     end subroutine write_alpha
 
     subroutine write_energetics_results(filename, heat_rate, work_rate, &
-                         internal_rate, entropy_rate)
+                         internal_rate, entropy_rate, node_layer)
+        ! Canonical node output: one header, one row per node. Layer=0 for non-FCNN.
         character(len=*), intent(in) :: filename
         real(dp), intent(in) :: heat_rate(:), work_rate(:)
         real(dp), intent(in) :: internal_rate(:), entropy_rate(:)
-        integer :: i, j, n
-        integer :: io_unit
-
+        integer, intent(in) :: node_layer(:)
+        integer :: node, n, io_unit, io_status
         n = size(heat_rate)
-
-        open(newunit=io_unit, file=filename, status='replace', action='write', iostat=i)
-        if (i /= 0) error stop "Error opening file for writing: "//filename
-
-        write(io_unit, '(A)') "Energetics Results"
-        write(io_unit, '(A)') "node, heat_rate, entropy_rate, work_rate, internal_rate"
-
-        do i = 1, n
-            write(io_unit, '(*(G0,:,","))') i, heat_rate(i), entropy_rate(i), &
-            work_rate(i), internal_rate(i)
+        if (n <= 0 .or. size(node_layer) /= n .or. size(work_rate) /= n .or. &
+            size(internal_rate) /= n .or. size(entropy_rate) /= n) then
+            error stop "Node energetics size mismatch"
+        end if
+        if (any(node_layer < 0)) error stop "Negative layer ID"
+        open(newunit=io_unit, file=filename, status="replace", action="write", iostat=io_status)
+        if (io_status /= 0) error stop "Cannot open node energetics output"
+        write(io_unit, '(A)') "Node,Layer,HR,EPR,WR,UR"
+        do node = 1, n
+            write(io_unit, '(*(G0,:,","))') node, node_layer(node), &
+                heat_rate(node), entropy_rate(node), work_rate(node), internal_rate(node)
         end do
-
         close(io_unit)
     end subroutine write_energetics_results
+
+    subroutine write_node_layers(filename, node_layer)
+        character(len=*), intent(in) :: filename
+        integer, intent(in) :: node_layer(:)
+        integer :: node, io_unit, io_status
+        if (size(node_layer) == 0 .or. any(node_layer <= 0)) error stop "Invalid FCNN layers"
+        open(newunit=io_unit, file=filename, status="replace", action="write", iostat=io_status)
+        if (io_status /= 0) error stop "Cannot open node-layer mapping"
+        write(io_unit, '(A)') "Node,Layer"
+        do node = 1, size(node_layer)
+            write(io_unit, '(*(G0,:,","))') node, node_layer(node)
+        end do
+        close(io_unit)
+    end subroutine write_node_layers
 
     subroutine write_energetics_by_node_and_layer( &
         filename, node_layer, heat_rate, work_rate, &
@@ -243,5 +257,42 @@ contains
         close(io_unit)
 
     end subroutine write_energetics_by_node_and_layer
+
+
+    subroutine write_layer_energetics_results( &
+        filename, node_count, layer_heat, layer_work, layer_internal, layer_entropy)
+        ! 每層一列；同時輸出層總值及每節點平均，避免兩種量混用。
+        character(len=*), intent(in) :: filename
+        integer, intent(in) :: node_count(:)
+        real(dp), intent(in) :: layer_heat(:), layer_work(:)
+        real(dp), intent(in) :: layer_internal(:), layer_entropy(:)
+        integer :: n_layers, layer, io_unit, io_status
+        real(dp) :: count_real
+
+        n_layers = size(node_count)
+        if (n_layers <= 0) error stop "Layer output requires at least one layer"
+        if (any(node_count <= 0)) error stop "Layer node counts must be positive"
+        if (size(layer_heat) /= n_layers .or. size(layer_work) /= n_layers .or. &
+            size(layer_internal) /= n_layers .or. size(layer_entropy) /= n_layers) then
+            error stop "Layer counts and energetic rates size mismatch"
+        end if
+        open(newunit=io_unit, file=filename, status="replace", &
+             action="write", iostat=io_status)
+        if (io_status /= 0) error stop "Error opening file for writing: " // filename
+        ! 沿用既有輸出格式：第一列標題，第二列 CSV 欄名。
+        write(io_unit, '(A)') "Energetics by Layer"
+        write(io_unit, '(A)') &
+            "layer,node_count,heat_total,entropy_total,work_total,internal_total," // &
+            "heat_per_node,entropy_per_node,work_per_node,internal_per_node"
+        do layer = 1, n_layers
+            count_real = real(node_count(layer), dp)
+            write(io_unit, '(*(G0,:,","))') layer, node_count(layer), &
+                layer_heat(layer), layer_entropy(layer), &
+                layer_work(layer), layer_internal(layer), &
+                layer_heat(layer) / count_real, layer_entropy(layer) / count_real, &
+                layer_work(layer) / count_real, layer_internal(layer) / count_real
+        end do
+        close(io_unit)
+    end subroutine write_layer_energetics_results
 
 end module output_mod

@@ -1,4 +1,5 @@
 program test_shuffle_ensemble
+    use, intrinsic :: ieee_arithmetic, only : ieee_is_nan
     use precision_mod
     use random_mod, only : initialize_seed
     use shuffle_mod, only : run_shuffle_ensemble, &
@@ -14,7 +15,7 @@ program test_shuffle_ensemble
         "test_shuffle_summary.csv"
     logical :: adjacency(n, n)
     logical :: file_exists
-    integer :: i, io_unit, io_status, shuffle_id
+    integer :: i, io_unit, io_status, shuffle_id, case_id, layer, layer_id, layer_count
     integer :: node_layer(n)
     character(len=16) :: status_label
     character(len=16) :: summary_coupling, summary_shuffle_mode
@@ -24,7 +25,8 @@ program test_shuffle_ensemble
     real(dp) :: W(n, n), bias(n), shuffled_bias(n)
     real(dp) :: r(n), noise(n, n)
     real(dp) :: max_real_part
-    real(dp) :: min_kappa_in, min_kappa_out
+    real(dp) :: min_kappa_in, min_kappa_out, max_kappa_in, max_kappa_out
+    real(dp) :: layer_rates(4)
     real(dp) :: original_entropy
     real(dp) :: original_min_kappa_in, original_min_kappa_out
     real(dp) :: original_max_real_part
@@ -67,7 +69,7 @@ program test_shuffle_ensemble
         "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
         .false., .true., 2, 2718, &
         1.0e-12_dp, 100, 0.0_dp, -2.0_dp, &
-        stability_file, energetics_file, summary_file)
+        stability_file, energetics_file, summary_file, "test_shuffle_node_layers.csv", spread(0.0_dp * r, 2, 4))
 
     inquire(file=stability_file, exist=file_exists)
     if (.not. file_exists) error stop "Missing shuffle stability output"
@@ -78,13 +80,13 @@ program test_shuffle_ensemble
 
     read(io_unit, '(A)', iostat=io_status) header
     if (io_status /= 0 .or. trim(header) /= &
-        "shuffle_id,status,max_real_part,min_kappa_in,min_kappa_out") then
+        "id,stability,max_real_part,max_kappa_in,min_kappa_in,max_kappa_out,min_kappa_out") then
         error stop "Incorrect shuffle stability header"
     end if
 
     read(io_unit, *, iostat=io_status) &
         shuffle_id, status_label, max_real_part, &
-        min_kappa_in, min_kappa_out
+        max_kappa_in, min_kappa_in, max_kappa_out, min_kappa_out
     if (io_status /= 0) error stop "Cannot parse shuffle stability row"
     if (shuffle_id /= 1 .or. trim(status_label) /= "stable") then
         error stop "Incorrect shuffle stability identifiers"
@@ -112,7 +114,8 @@ program test_shuffle_ensemble
         "network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
-        "original_min_kappa_out,original_max_real_part") then
+        "original_min_kappa_out,original_max_real_part," // &
+        "original_max_kappa_in,original_max_kappa_out,shuffle_seed") then
         error stop "Incorrect shuffle summary header"
     end if
 
@@ -147,6 +150,46 @@ program test_shuffle_ensemble
     call delete_test_file(stability_file)
     call delete_test_file(energetics_file)
     call delete_test_file(summary_file)
+    call delete_test_file("test_shuffle_node_layers.csv")
+
+    ! Marginal and unstable trials must retain all layer rows with missing rates.
+    do case_id = 1, 2
+        r = -real(case_id - 1, dp)
+        call run_shuffle_ensemble( &
+            adjacency, W, bias, r, noise, "LINEAR", "BIAS", &
+            "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
+            .false., .true., 1, 2718, 1.0e-12_dp, 100, 0.0_dp, 0.0_dp, &
+            stability_file, energetics_file, summary_file, "test_shuffle_node_layers.csv", spread(0.0_dp * r, 2, 4))
+        open(newunit=io_unit, file=stability_file, status="old")
+        read(io_unit, '(A)') header
+        read(io_unit, *) shuffle_id, status_label, max_real_part, &
+            max_kappa_in, min_kappa_in, max_kappa_out, min_kappa_out
+        if (case_id == 1 .and. trim(status_label) /= "marginal") error stop "Missing marginal trial"
+        if (case_id == 2 .and. trim(status_label) /= "unstable") error stop "Missing unstable trial"
+        if (abs(max_kappa_in - 0.11_dp) > 1.0e-12_dp .or. &
+            abs(max_kappa_out - 0.18_dp) > 1.0e-12_dp) error stop "Incorrect strength maxima"
+        close(io_unit, status="delete")
+        open(newunit=io_unit, file=energetics_file, status="old")
+        read(io_unit, '(A)') header
+        ! First two rows are the original reference, even for nonstable trials.
+        do layer = 1, 2
+            read(io_unit, *, iostat=io_status) shuffle_id, layer_id, layer_count, layer_rates
+            if (io_status /= 0) error stop "Missing original layer row"
+            if (shuffle_id /= 0 .or. layer_id /= layer .or. layer_count /= 2) &
+                error stop "Incorrect original layer identifiers"
+            if (any(abs(layer_rates) > 1.0e-12_dp)) error stop "Original rates changed"
+        end do
+        do layer = 1, 2
+            read(io_unit, *, iostat=io_status) shuffle_id, layer_id, layer_count, layer_rates
+            if (io_status /= 0) error stop "Missing nonstable layer row"
+            if (shuffle_id /= 1 .or. layer_id /= layer .or. layer_count /= 2) &
+                error stop "Incorrect nonstable layer identifiers"
+            if (.not. all(ieee_is_nan(layer_rates))) error stop "Nonstable rates must be NaN"
+        end do
+        close(io_unit, status="delete")
+        call delete_test_file(summary_file)
+        call delete_test_file("test_shuffle_node_layers.csv")
+    end do
 
     print *, "TANH weight/bias shuffle ensemble test passed."
 

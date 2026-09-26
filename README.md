@@ -463,47 +463,51 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 
 ## 輸出檔案
 
-主要輸出如下：
+所有新 CSV 第一列就是欄名，使用 `pd.read_csv(path)`，不需要 `skiprows=1`。
 
-| 檔案 | 產生條件 | 內容 |
-|---|---|---|
-| `output/node.csv` | 每次執行 | node、layer、`r`、noise diagonal、fixed point、實際 bias；非 FCNN 的 layer 為 0 |
-| `output/edge.csv` | generated ER/FCNN | target、source、weight；`EXTERNAL` 不重複輸出 |
-| `output/energetics_theory.csv` | 每次穩定的理論計算 | 每個節點的 heat、entropy、work、internal rate |
-| `output/energetics_theory_by_node_and_layer.csv` | 內建 FCNN，或具有一致 layer metadata 的 external FCNN | 每個節點的 layer ID 與 theoretical heat、entropy、work、internal rate；input layer 編號為 1，可依 layer 加總或計算統計量 |
-| `output/mean.csv` | `run_simulation=.true.` | 每個節點的 `<x>` 與 `<F>` |
-| `output/correlation.csv` | `run_simulation=.true.` | 完整模擬 `K0`、`Ktau` 與解析 `K0_theory` |
-| `output/energetics.csv` | `run_simulation=.true.` | 每個節點的模擬 energetics rates |
-| `output/shuffle/shuffle_stability.csv` | `n_weight_shuffles>0` | 每次 shuffle 的 stable/marginal/unstable 判定、最大 eigenvalue real part，以及最小 signed weighted in/out-strength |
-| `output/shuffle/shuffle_energetics.csv` | `n_weight_shuffles>0` | 每個 stable shuffle 的 total energetics |
-| `output/shuffle/shuffle_summary.csv` | `n_weight_shuffles>0` | coupling type、shuffle mode、`GLOBAL`/`LAYER` scope、輸入檔案、trial/stability 數量，以及原始網路的 total entropy、最小 signed weighted in/out-strength、最大 eigenvalue real part |
+### 單次執行（`n_weight_shuffles=0`）
 
-一般輸出 (`node.csv`、`edge.csv`、`mean.csv`、`correlation.csv`、`energetics*.csv`) 第一行是文字標題、第二行才是欄名，因此 pandas 要使用：
+- `output/energetics_theory.csv`：每個節點的理論速率。
+- `output/energetics_simulation.csv`：啟用模擬時的每節點時間平均速率。
 
-```python
-import pandas as pd
+兩者皆只有 `Node,Layer,HR,EPR,WR,UR` 六欄。FCNN 的 Layer 從 1 開始；
+非 FCNN 為 0。所有速率都是節點值，按 Layer 加總才是層總值。
+不再寫出 node/edge/mean/correlation CSV 或重複的逐層、逐節點理論表。
+計算與終端診斷仍保留；此變更不修改動力學或 energetics 定義。
 
-df = pd.read_csv("output/energetics.csv", skiprows=1)
-df.columns = df.columns.str.strip()
-```
+### Shuffle 執行（`n_weight_shuffles>0`）
 
-三個 `shuffle_*.csv` 第一行就是欄名，不使用 `skiprows=1`。
+只在 `output/shuffle/` 寫出四份資料，不寫原始網路的節點 energetics 表：
 
-`output/shuffle/` 只保存主程式當次執行產生的三個 shuffle CSV。若要封存不同
-network case，將它們放在該 case 自己的 `shuffle/` 子資料夾，例如：
+| 檔案 | 欄位與內容 |
+|---|---|
+| `node_layers.csv` | `Node,Layer`，不變的節點分層配對只寫一次 |
+| `shuffle_trials.csv` | `id,stability,max_real_part,max_kappa_in,min_kappa_in,max_kappa_out,min_kappa_out` |
+| `shuffle_layer_energetics.csv` | `id,Layer,node_count,HR_total,EPR_total,WR_total,UR_total`，原始網路 id=0，加上每個 trial 的每層一列 |
+| `shuffle_summary.csv` | coupling、shuffle mode/scope、來源檔案、shuffle seed、試驗及穩定性計數、原始總 EPR 與穩定性及權重極值 |
 
-```text
-output/256x2/shuffle/
-output/256x4/shuffle/
-output/256x6/shuffle/
-```
+Weighted degree 保留權重正負號，極值取全網路節點（含邊界的結構零值）。
+`unstable`、`marginal` 的各層速率寫為 `NaN`，不是零；只對 stable trials
+計算穩態速率。逐層速率由節點結果以 O(N+L) 加總，EPR 直接加總節點 EPR，
+不使用層平均噪音。各層 HR-WR=UR，各層 EPR 加總得到該 trial 的全網路 EPR。
+Python 加總時需保留缺值，例如 `sum(min_count=layer_count)`，避免把全 NaN 變成零。
 
-因此 `analysis/analyze_shuffle_ensemble.py` 預設分析的是 `output/shuffle/` 的
-當次結果；分析封存 case 時需將腳本的 input directory 指向相應 case。
+`analysis/analyze_shuffle_ensemble.py` 預設讀取 `output/shuffle/`，也能讀取
+封存的舊式三檔格式；原始訓練網路的紅色 EPR 虛線仍取自 summary 的
+`original_entropy`。封存分析可修改腳本的 `output_dir`。
 
-`output/Q.csv`、`output/correlation_theory.csv` 與 `output/alpha.csv` 目前不由主程式更新。若工作目錄留有這些檔案，它們可能是舊執行結果，不應當作本次 run 的輸出。
+`shuffle_layer_energetics.csv` 的 `id=0` 保存同次執行原始網路的各層速率，
+從已有節點理論值加總而來，不另求解。真正 shuffle 的 id 從 1 開始；
+試驗數、shuffle 平均與標準差皆不包括 id=0。分析腳本另存
+`figure/shuffle_layer_epr_histograms.png`：每層 stable shuffle 的總 EPR 分布，
+紅色垂直虛線是原始層總 EPR，並列印原始值、shuffle 平均、樣本標準差及差值。
+舊資料若缺少 id=0，仍可畫全網路圖，但不能由全網路 EPR 推回各層基準。
 
-程式不會自動清除前一次 run 的其他檔案。因此 `EXTERNAL` 模式下既有的 `edge.csv`，以及 `run_simulation=.false.` 時既有的 simulation CSV，也可能是舊結果；應以本次設定的「產生條件」判斷哪些檔案有效。
+
+程式不刪除既有舊輸出。切換模式時請使用乾淨的 output 目錄或分開封存每次
+執行；舊 node/edge/mean/correlation、`energetics.csv`、`*_by_layer.csv`、
+`shuffle_stability.csv`、`shuffle_energetics.csv` 不再由主程式更新。
+
 
 ## Shuffle ensemble
 
@@ -520,7 +524,7 @@ output/256x6/shuffle/
 9. 重新檢查 stability；
 10. marginal/unstable trial 只寫入 stability output，跳過 Lyapunov 與 energetics；
 11. stable trial 才計算 covariance、alpha、total energetics；
-12. 將每個 stable trial 的 total energetics 寫入 `output/shuffle/shuffle_energetics.csv`，供 Python 統計與繪圖。
+12. 將每個 trial 的逐層 energetics 寫入 `output/shuffle/shuffle_layer_energetics.csv`（非 stable 為 NaN），供 Python 統計與繪圖。
 
 每個 trial 另計算 signed weighted in-strength
 
@@ -535,7 +539,7 @@ kappa_out(j) = sum_i W(i,j),
 ```
 
 並將 `min_kappa_in`、`min_kappa_out` 與 stability 結果一起寫入
-`output/shuffle/shuffle_stability.csv`。依照本專案的矩陣慣例，兩者分別是所有指向
+`output/shuffle/shuffle_trials.csv`。依照本專案的矩陣慣例，兩者分別是所有指向
 節點 `i` 與從節點 `j` 指出的 signed edge weights 總和，不使用 weight 絕對值。
 `stability_gap=-max_real_part` 不再重複輸出。原始網路的
 `original_min_kappa_in` 與 `original_min_kappa_out` 則寫入
@@ -562,7 +566,7 @@ kappa_out(j) = sum_i W(i,j),
 python3 analysis/plot_simulation_vs_theory.py
 ```
 
-這支程式會讀取 energetics、node、mean 與 correlation outputs，在同一張 `2 x 3` 圖中比較四種 energetics、fixed point 與 mean state，以及解析與模擬的 `K0`。所有 panel 使用相同的 x/y scale 與 `y=x` 參考線，並顯示 RMSE 和最大絕對誤差。圖片會儲存為 `figure/simulation_theory_comparison.png`，同時以 `plt.show()` 顯示。
+這支程式讀取 `energetics_theory.csv` 與 `energetics_simulation.csv`，依 Node、Layer 配對，在 `2 x 2` 圖中比較 HR、EPR、WR、UR。各 panel 使用相同的 x/y scale 與 `y=x` 參考線，並顯示 RMSE 和最大絕對誤差。圖片儲存為 `figure/simulation_theory_comparison.png`，同時以 `plt.show()` 顯示。
 
 大型 FCNN 的 `K0` 有 `N^2` 個元素。繪圖程式會以完整資料計算誤差統計，但最多抽取 200,000 個 covariance points 顯示，以控制繪圖時間與圖片大小。
 
@@ -580,7 +584,7 @@ python3 analysis/analyze_fcnn_inputs.py
 python3 analysis/analyze_fcnn_energetics.py
 ```
 
-這支程式讀取設定路徑下的 `energetics_theory_by_node_and_layer.csv`，以 1-based
+這支程式讀取設定路徑下的 `energetics_theory.csv`，以 1-based
 layer ID 將 input、hidden 與 output layers 分組。目前只分析 entropy production，
 計算每層的 total、per-node mean、sample standard deviation，以及每層占全網路
 total entropy 的 fraction/percentage；程式也會檢查 layer totals 與比例總和。
