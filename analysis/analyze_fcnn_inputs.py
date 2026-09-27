@@ -727,7 +727,7 @@ def plot_layer_strength_distributions(column, layer_numbers, direction, color):
         ax.hist(values, bins=bin_edges, color=color, alpha=0.8)
         ax.axvline(0.0, color="black", linewidth=1)
         ax.set_title(f"Layer {row.layer} (N={row.node_count})")
-        ax.set_xlabel(f"Signed {direction} weighted degree")
+        ax.set_xlabel(f"{direction} weighted degree")
         ax.set_ylabel("Number of nodes")
         ax.grid(alpha=0.25)
         ax.text(
