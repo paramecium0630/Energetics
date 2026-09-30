@@ -13,13 +13,19 @@ from energetics_io import read_node_energetics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-INPUT_FILE = PROJECT_ROOT / "output" / "energetics_theory.csv"
+# INPUT_FILE = PROJECT_ROOT / "output" / "energetics_theory.csv"
+INPUT_FILE = PROJECT_ROOT / "shuffle_data" / "mnist256x1_linear" / "energetics_theory.csv"
 
 FIGURE_DIR = PROJECT_ROOT / "figure"
 
 TOTAL_FIGURE_FILE = (
     FIGURE_DIR
     / "entropy_production_by_layer.png"
+)
+
+NODE_DISTRIBUTION_FIGURE_FILE = (
+    FIGURE_DIR
+    / "node_epr_distribution_by_layer.png"
 )
 
 # -----------------------------------------------------------------------------
@@ -201,7 +207,7 @@ for layer in layer_numbers:
 
 entropy_boxplot = axes[1].boxplot(
     entropy_values_by_layer,
-    labels=layer_labels,
+    tick_labels=layer_labels,
     patch_artist=True,
     showfliers=True,
     flierprops={
@@ -243,6 +249,94 @@ figure.savefig(
 print(
     f"Saved entropy figure: "
     f"{TOTAL_FIGURE_FILE}"
+)
+
+# -----------------------------------------------------------------------------
+# 8. 畫每一層的 node-level EPR distribution
+# -----------------------------------------------------------------------------
+
+number_of_layers = len(layer_numbers)
+number_of_columns = min(3, number_of_layers)
+number_of_rows = (
+    number_of_layers + number_of_columns - 1
+) // number_of_columns
+
+distribution_figure, distribution_axes = plt.subplots(
+    number_of_rows,
+    number_of_columns,
+    figsize=(5 * number_of_columns, 4 * number_of_rows),
+    squeeze=False,
+)
+
+flat_distribution_axes = distribution_axes.ravel()
+
+for index, (layer, label, values) in enumerate(zip(
+    layer_numbers,
+    layer_labels,
+    entropy_values_by_layer,
+)):
+    axis = flat_distribution_axes[index]
+    node_count = values.size
+    total_value = values.sum()
+    mean_value = values.mean()
+    std_value = values.std(ddof=1) if node_count > 1 else 0.0
+    number_of_bins = max(5, min(40, int(np.ceil(np.sqrt(node_count)))))
+
+    axis.hist(
+        values,
+        bins=number_of_bins,
+        color="tab:blue",
+        edgecolor="black",
+        alpha=0.75,
+    )
+    axis.axvline(
+        mean_value,
+        color="tab:red",
+        linestyle="--",
+        linewidth=1.5,
+        label="Mean",
+    )
+    axis.set_title(f"{label} (L{layer})")
+    axis.set_xlabel("Node-level EPR")
+    axis.set_ylabel("Number of nodes")
+    axis.grid(axis="y", alpha=0.25)
+    axis.legend()
+    axis.text(
+        0.97,
+        0.95,
+        f"N = {node_count}\n"
+        f"Total EPR = {total_value:.6g}\n"
+        f"Mean = {mean_value:.6g}\n"
+        f"Sample std = {std_value:.6g}",
+        transform=axis.transAxes,
+        horizontalalignment="right",
+        verticalalignment="top",
+        bbox={
+            "boxstyle": "round",
+            "facecolor": "white",
+            "alpha": 0.85,
+        },
+    )
+
+for axis in flat_distribution_axes[number_of_layers:]:
+    axis.set_visible(False)
+
+distribution_figure.suptitle(
+    "Node-level entropy production rate by layer",
+    fontsize=16,
+)
+distribution_figure.tight_layout(
+    rect=(0.0, 0.0, 1.0, 0.96)
+)
+distribution_figure.savefig(
+    NODE_DISTRIBUTION_FIGURE_FILE,
+    dpi=200,
+    bbox_inches="tight",
+)
+
+print(
+    f"Saved node-level EPR distributions: "
+    f"{NODE_DISTRIBUTION_FIGURE_FILE}"
 )
 
 plt.show()

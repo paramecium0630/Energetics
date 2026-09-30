@@ -5,7 +5,7 @@ from pathlib import Path
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
 # output_dir = project_dir / "output" / "shuffle"
-output_dir = project_dir / "shuffle_data" / "mnist256x2_linear" / "layer"
+output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "layer"
 figure_dir = project_dir / "figure"
 figure_dir.mkdir(exist_ok=True)
 
