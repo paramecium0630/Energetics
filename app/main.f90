@@ -28,6 +28,9 @@ program main
     character(len=48) :: wall_step_labels(max_wall_steps)
     real(dp) :: wall_step_times(max_wall_steps)
 
+    integer :: layer
+    real(dp), allocatable :: weight_norm_sq_by_layer(:)
+
     integer, allocatable :: layer_sizes(:), node_layer(:)
     integer :: nstep, n_relax, n_hidden
     real(dp) :: max_fixedpoint_residual, max_force_at_fixedpoint
@@ -108,7 +111,7 @@ program main
       call generate_er(param, adj_matrix, W)
 
     case("FCNN")      
-      n_hidden = 3
+      n_hidden = 1
       allocate(layer_sizes(n_hidden+2))      
       allocate(w_mean_by_connection(n_hidden+1))
       allocate(w_std_by_connection(n_hidden+1))
@@ -119,23 +122,23 @@ program main
       ! Gaussian weight distribution for each adjacent layer connection.
       ! Setting a standard deviation to zero gives a delta distribution.
       w_mean_by_connection = [ &
-      0.025752, 0.043977, 0.043761, 0.131395]
+      0.000535779, 0.000993431]
 
       w_std_by_connection = [ &
-      0.025750481_dp, 0.043862444_dp, 0.043662719_dp, 0.131418339_dp]
-      w_std_by_connection=0
+      0.031423203_dp, 0.210853791_dp]
+    !   w_std_by_connection=0
 
       r_by_layer = [ &
-      10.0_dp, 10.0_dp, 10.0_dp, 10.0_dp, 10.0_dp]
+      10.0_dp, 10.0_dp, 10.0_dp]
 
       sigma_by_layer = [ &
-      1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp]
+      1.0_dp, 1.0_dp, 1.0_dp]
 
       param%N = sum(layer_sizes)
       param%directed = .true.
       call generate_FCNN( &
       param, n_hidden, layer_sizes, &
-      -w_mean_by_connection, w_std_by_connection, &
+      w_mean_by_connection, w_std_by_connection, &
       adj_matrix, W)
       call assign_node_layers(layer_sizes, node_layer)
       is_fcnn_network = .true.
@@ -194,6 +197,32 @@ program main
           error stop "Bias layer IDs disagree with FCNN topology"
         end if
       end if
+    end if
+
+    if (is_fcnn_network) then
+        allocate(weight_norm_sq_by_layer(maxval(node_layer)))
+        weight_norm_sq_by_layer = 0.0_dp
+
+        ! 將每個 target node 的所有 incoming weights 平方後，
+        ! 加到該 target node 所屬 layer。
+        ! 對 FCNN，這等於 ||W_{ell,ell-1}||_F^2。
+        do i = 1, param%N
+            layer = node_layer(i)
+            weight_norm_sq_by_layer(layer) = &
+            weight_norm_sq_by_layer(layer) + sum(W(i, :)**2)
+        end do
+
+        print *, "-------------------------------"
+        print *, "FCNN weight norm by target layer"
+        print *, "-------------------------------"
+
+        do layer = 1, size(weight_norm_sq_by_layer)
+            print *, "Layer", layer, "||W_in||^2 =", &
+                weight_norm_sq_by_layer(layer)
+            end do
+
+        ! 所有 layer 的結果應重建完整矩陣的 Frobenius norm 平方。
+        ! if (.not. nearly_equal( ... )) ! 不建議為此另加函式
     end if
     
     print *, "Bias parameters"

@@ -2,13 +2,13 @@
     ! N and directed are overridden by FCNN/EXTERNAL where applicable.
     N          = 100
     directed   = .false.
-    graph_type = "EXTERNAL"
+    graph_type = "FCNN"
     p          = 0.2
-    network_file = "input/uniform/mnist256x3_self/weighted_matrix.dat"
+    network_file = "input/uniform/mnist256x1_self1/weighted_matrix.dat"
 /
 
 &dynamics
-    bias_file   = "input/uniform/mnist256x3_self/bias.dat"
+    bias_file   = "input/uniform/mnist256x1_self1/bias.dat"
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0

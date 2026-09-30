@@ -862,4 +862,4 @@ print("------------------------------------")
 print("\t".join(excel_headers))
 print("\t".join(f"{value:.10g}" for value in excel_values))
 
-plt.show()
+# plt.show()
