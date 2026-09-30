@@ -16,7 +16,7 @@
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
-    coupling_type = "DIFFUSIVE"
+    coupling_type = "LINEAR"
     sigma_mean = 1.0
 /
 
@@ -25,7 +25,7 @@
     n_weight_shuffles = 1000
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
-    shuffle_scope     = "LAYER"
+    shuffle_scope     = "GLOBAL"
 /
 
 &simulation
