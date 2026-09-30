@@ -172,161 +172,123 @@ contains
 
     end subroutine generate_fcnn
 
-    subroutine shuffle_FCNN_weights(adj_matrix, W)
+    subroutine shuffle_fcnn_weights( &
+        adj_matrix, W, node_layer, shuffle_scope, &
+        shuffle_target_layer, shuffle_fraction)
+        ! Permute existing FCNN weights without changing the topology or the
+        ! global weight multiset. GLOBAL uses all edges as one group; LAYER
+        ! treats each W_(ell,ell-1) block as a separate group.
         logical, intent(in) :: adj_matrix(:,:)
         real(dp), intent(inout) :: W(:,:)
+        integer, intent(in) :: node_layer(:)
+        character(len=*), intent(in) :: shuffle_scope
+        integer, intent(in) :: shuffle_target_layer
+        real(dp), intent(in) :: shuffle_fraction
 
-        integer :: n, n_edges
-        integer :: i, j, edge_index
+        integer :: n, n_layers, first_group, last_group, group
+        integer :: source_node, target_node
+        integer :: edge_index, n_edges, n_selected
+        integer :: k, random_index, temporary_index
+        logical :: eligible
+        integer, allocatable :: source_indices(:), target_indices(:)
         real(dp), allocatable :: edge_weights(:)
 
         n = size(W, 1)
-
-        if (size(W, 2) /= n) then
-            error stop "W must be square"
+        if (n <= 0 .or. size(W, 2) /= n) then
+            error stop "FCNN weight shuffle requires a nonempty square W"
         end if
-
-        if (size(adj_matrix, 1) /= n .or. &
-            size(adj_matrix, 2) /= n) then
+        if (size(adj_matrix, 1) /= n .or. size(adj_matrix, 2) /= n) then
             error stop "adj_matrix and W size mismatch"
         end if
+        if (size(node_layer) /= n .or. any(node_layer <= 0)) then
+            error stop "Invalid node layers in FCNN weight shuffle"
+        end if
+        if (shuffle_fraction <= 0.0_dp .or. shuffle_fraction > 1.0_dp) then
+            error stop "shuffle_fraction must satisfy 0 < fraction <= 1"
+        end if
 
-        n_edges = count(adj_matrix)
-
-        if (n_edges <= 1) return
-
-        allocate(edge_weights(n_edges))
-
-        ! 收集所有既有 edge 的權重
-        edge_index = 0
-
-        do j = 1, n
-            do i = 1, n
-                if (adj_matrix(i, j)) then
-                    edge_index = edge_index + 1
-                    edge_weights(edge_index) = W(i, j)
+        n_layers = maxval(node_layer)
+        select case (trim(adjustl(shuffle_scope)))
+        case ("GLOBAL")
+            if (shuffle_target_layer /= 0) then
+                error stop "GLOBAL weight shuffle requires target layer 0"
+            end if
+            first_group = 0
+            last_group = 0
+        case ("LAYER")
+            if (shuffle_target_layer == 0) then
+                first_group = 2
+                last_group = n_layers
+            else
+                if (shuffle_target_layer < 2 .or. &
+                    shuffle_target_layer > n_layers) then
+                    error stop "Shuffle target layer is outside 2,...,L"
                 end if
-            end do
-        end do
+                first_group = shuffle_target_layer
+                last_group = shuffle_target_layer
+            end if
+        case default
+            error stop "shuffle_scope must be GLOBAL or LAYER"
+        end select
 
-        call shuffle_real_values(edge_weights)
+        ! One reusable coordinate workspace serves GLOBAL, every layer block,
+        ! complete shuffles, and partial shuffles. This keeps edge eligibility
+        ! in one place and avoids separate count/collect implementations.
+        allocate(source_indices(count(adj_matrix)))
+        allocate(target_indices(count(adj_matrix)))
 
-        ! 將排列後的權重放回相同的 topology
-        edge_index = 0
-
-        do j = 1, n
-            do i = 1, n
-                if (adj_matrix(i, j)) then
-                    edge_index = edge_index + 1
-                    W(i, j) = edge_weights(edge_index)
-                end if
-            end do
-        end do
-
-    end subroutine shuffle_FCNN_weights
-
-    subroutine shuffle_fcnn_weights_by_layer( &
-    adj_matrix, W, node_layer)
-
-    integer :: n, n_layers
-    integer :: source_layer, target_layer
-    integer :: source_node, target_node
-    integer :: edge_index, n_edges
-    logical, intent(in) :: adj_matrix(:,:)
-    integer, intent(in) :: node_layer(:)
-    real(dp), intent(inout) :: W(:,:)
-
-
-    integer, allocatable :: source_indices(:)
-    integer, allocatable :: target_indices(:)
-    real(dp), allocatable :: edge_weights(:)
-
-    n = size(W, 1)
-
-    if (n <= 0) then
-    error stop "Layer weight shuffle requires a nonempty network"
-    end if
-
-    if (size(W, 2) /= n) then
-    error stop "W must be square"
-    end if
-
-    if (size(adj_matrix, 1) /= n .or. &
-    size(adj_matrix, 2) /= n) then
-    error stop "adj_matrix and W size mismatch"
-    end if
-
-    if (size(node_layer) /= n) then
-    error stop "node_layer and W size mismatch"
-    end if
-
-    if (any(node_layer <= 0)) then
-    error stop "Layer indices must be positive"
-    end if
-
-    n_layers = maxval(node_layer)
-
-    do source_layer = 1, n_layers
-        do target_layer = 1, n_layers
-
-            ! 計算這一組 source_layer -> target_layer 有幾條 edge。
-            n_edges = 0
-
-            do source_node = 1, n
-                if (node_layer(source_node) /= source_layer) cycle
-
-                do target_node = 1, n
-                    if (node_layer(target_node) /= target_layer) cycle
-
-                    if (adj_matrix(target_node, source_node)) then
-                        n_edges = n_edges + 1
-                    end if
-                end do
-            end do
-
-            if (n_edges <= 1) cycle
-
-            allocate(source_indices(n_edges))
-            allocate(target_indices(n_edges))
-            allocate(edge_weights(n_edges))
-
-            ! 收集同一組 layer connection 的 edge positions 和 weights。
+        do group = first_group, last_group
             edge_index = 0
-
             do source_node = 1, n
-                if (node_layer(source_node) /= source_layer) cycle
-
                 do target_node = 1, n
-                    if (node_layer(target_node) /= target_layer) cycle
-
-                    if (.not. adj_matrix(target_node, source_node)) cycle
-
+                    eligible = adj_matrix(target_node, source_node)
+                    if (group > 0) then
+                        eligible = eligible .and. &
+                            node_layer(source_node) == group - 1 .and. &
+                            node_layer(target_node) == group
+                    end if
+                    if (.not. eligible) cycle
                     edge_index = edge_index + 1
                     source_indices(edge_index) = source_node
                     target_indices(edge_index) = target_node
-                    edge_weights(edge_index) = &
-                    W(target_node, source_node)
                 end do
             end do
+            n_edges = edge_index
+            if (n_edges <= 1) cycle
 
-            call shuffle_real_values(edge_weights)
+            n_selected = nint(shuffle_fraction * real(n_edges, dp))
+            if (n_selected < 2) then
+                error stop "shuffle_fraction selects fewer than two edges"
+            end if
 
-            ! 放回同一組 layer connection。
-            do edge_index = 1, n_edges
-                W( &
-                target_indices(edge_index), &
-                source_indices(edge_index) &
-                ) = edge_weights(edge_index)
+            ! Preserve the legacy RNG sequence for a complete shuffle. For a
+            ! partial shuffle, sample positions uniformly without replacement.
+            if (n_selected < n_edges) then
+                do k = n_edges, 2, -1
+                    random_index = 1 + int(rand_uniform() * real(k, dp))
+                    temporary_index = source_indices(k)
+                    source_indices(k) = source_indices(random_index)
+                    source_indices(random_index) = temporary_index
+                    temporary_index = target_indices(k)
+                    target_indices(k) = target_indices(random_index)
+                    target_indices(random_index) = temporary_index
+                end do
+            end if
+
+            allocate(edge_weights(n_selected))
+            do edge_index = 1, n_selected
+                edge_weights(edge_index) = W( &
+                    target_indices(edge_index), source_indices(edge_index))
             end do
-
-            deallocate(source_indices)
-            deallocate(target_indices)
+            call shuffle_real_values(edge_weights)
+            do edge_index = 1, n_selected
+                W(target_indices(edge_index), source_indices(edge_index)) = &
+                    edge_weights(edge_index)
+            end do
             deallocate(edge_weights)
-
         end do
-    end do
-
-    end subroutine shuffle_fcnn_weights_by_layer
+        deallocate(source_indices, target_indices)
+    end subroutine shuffle_fcnn_weights
 
     subroutine read_weighted_edge_list(filename, adj_matrix, W, n_nodes)
         use, intrinsic :: iso_fortran_env, only : iostat_end

@@ -353,6 +353,9 @@ Euler–Maruyama increment 使用 `sqrt(sigma(i,i) * dt) * Normal(0,1)`。模擬
 | `n_weight_shuffles` | shuffle ensemble 的 trial 次數；`0` 表示不執行 |
 | `shuffle_seed` | shuffle ensemble 的獨立 RNG seed |
 | `shuffle_mode` | `WEIGHT`、`BIAS` 或 `BOTH`；預設為 `WEIGHT` |
+| `shuffle_scope` | `GLOBAL` 將 eligible weights 放在同一組置換；`LAYER` 對每個相鄰層區塊獨立置換 |
+| `shuffle_target_layer` | `0` 表示所有層；`LAYER` 模式下 `ell>=2` 只處理流入第 `ell` 層的 `W_(ell,ell-1)` |
+| `shuffle_fraction` | 每個 eligible group 中無放回抽取的 edge 比例，必須滿足 `0 < f <= 1`；預設 `1` |
 
 ### `&simulation`
 
@@ -514,7 +517,7 @@ Python 加總時需保留缺值，例如 `sum(min_count=layer_count)`，避免�
 設定 `n_weight_shuffles > 0` 後，程式會先完成原始網路理論，再執行 shuffled ensemble：
 
 1. 每次從相同的原始 `W` 與 bias 開始；
-2. `WEIGHT` 保持 topology 與 edge 數固定，只重排既有 edge weights；
+2. `WEIGHT` 保持 topology 與 edge 數固定，只重排抽中的既有 edge weights；
 3. `BIAS` 在全網路所有節點間重排原有 bias，允許 bias 跨 layer 移動；
 4. `BOTH` 依序執行 weight 與 network-wide bias shuffle；
 5. 所有排列都使用 Fisher–Yates algorithm；
@@ -557,6 +560,17 @@ kappa_out(j) = sum_i W(i,j),
 上述 distribution safety check 不建立額外 CSV。weight 只統計既有 edge 上的值，
 同時要求所有 non-edge matrix entries 維持不變；bias 則以全網路所有節點為比較
 範圍。全部 trial 通過後，終端機會顯示 `Shuffle safety checks = passed`。
+
+`GLOBAL` 必須搭配 `shuffle_target_layer=0`。例如
+`shuffle_fraction=0.25` 會從全網路 edge 均勻、無放回抽取 25% 的位置，
+再於這些位置之間置換權重。`LAYER` 下比例會對每個層區塊分別套用；
+若 `shuffle_target_layer=3`，只處理 `W_(3,2)`。這個比例是「參與置換的
+edge 比例」；置換可能有 fixed points，所以最後數值改變的 edge 數可能更少。
+`BOTH` 模式中，`shuffle_fraction` 只套用於 weights；`LAYER` 的非零
+`shuffle_target_layer` 也會將 bias 置換限制在該層。Summary 會記錄這兩個參數。
+實際抽取數為 `nint(shuffle_fraction * edge_count)`；若一個 eligible group
+有多於一條 edge，但比例只選到少於兩條，程式會停止並報錯，避免產生
+看似有 shuffle 的無效 trial。
 
 ## Python 分析與繪圖
 

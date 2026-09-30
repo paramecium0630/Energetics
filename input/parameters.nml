@@ -26,6 +26,10 @@
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
     shuffle_scope     = "GLOBAL"
+    ! 0: all connections; ell>=2: W_(ell,ell-1), valid with LAYER scope.
+    shuffle_target_layer = 0
+    ! Fraction of eligible positions; nint(fraction * edge_count) are sampled.
+    shuffle_fraction = 1.0
 /
 
 &simulation

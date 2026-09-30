@@ -19,6 +19,11 @@ program test_parameter_groups
     if (trim(param%shuffle_mode) /= "BOTH") then
         error stop "shuffle_mode was not read from &theory"
     end if
+    if (trim(param%shuffle_scope) /= "LAYER" .or. &
+        param%shuffle_target_layer /= 2 .or. &
+        abs(param%shuffle_fraction - 0.5_dp) > epsilon(1.0_dp)) then
+        error stop "Shuffle selection parameters were not read from &theory"
+    end if
 
     print *, "Dynamics sigma namelist test passed."
 

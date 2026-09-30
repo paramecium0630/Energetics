@@ -502,7 +502,8 @@ program main
       call run_shuffle_ensemble( &
       adj_matrix, W, bias, &
       r, noise, param%coupling_type, param%shuffle_mode, &
-      param%shuffle_scope, param%network_file, param%bias_file, &
+      param%shuffle_scope, param%shuffle_target_layer, &
+      param%shuffle_fraction, param%network_file, param%bias_file, &
       node_layer, q_is_upper, q_is_lower, &
       param%n_weight_shuffles, &
       param%shuffle_seed, &

@@ -21,7 +21,7 @@ program test_shuffle_ensemble
     character(len=16) :: summary_coupling, summary_shuffle_mode
     character(len=16) :: summary_shuffle_scope
     character(len=64) :: summary_network_file, summary_bias_file
-    character(len=256) :: header
+    character(len=512) :: header
     real(dp) :: W(n, n), bias(n), shuffled_bias(n)
     real(dp) :: r(n), noise(n, n)
     real(dp) :: max_real_part
@@ -31,6 +31,8 @@ program test_shuffle_ensemble
     real(dp) :: original_min_kappa_in, original_min_kappa_out
     real(dp) :: original_max_real_part
     integer :: n_requested, n_stable, n_marginal, n_unstable
+    integer :: summary_target_layer
+    real(dp) :: summary_fraction
 
     bias = [1.0_dp, 2.0_dp, 10.0_dp, 20.0_dp]
     shuffled_bias = bias
@@ -66,7 +68,8 @@ program test_shuffle_ensemble
     call run_shuffle_ensemble( &
         adjacency, W, bias, &
         r, noise, "TANH", "BOTH", &
-        "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
+        "GLOBAL", 0, 1.0_dp, &
+        "test_network.dat", "test_bias.dat", node_layer, &
         .false., .true., 2, 2718, &
         1.0e-12_dp, 100, 0.0_dp, -2.0_dp, &
         stability_file, energetics_file, summary_file, "test_shuffle_node_layers.csv", spread(0.0_dp * r, 2, 4))
@@ -111,6 +114,7 @@ program test_shuffle_ensemble
     read(io_unit, '(A)', iostat=io_status) header
     if (io_status /= 0 .or. trim(header) /= &
         "coupling_type,shuffle_mode,shuffle_scope," // &
+        "shuffle_target_layer,shuffle_fraction," // &
         "network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
@@ -121,6 +125,7 @@ program test_shuffle_ensemble
 
     read(io_unit, *, iostat=io_status) &
         summary_coupling, summary_shuffle_mode, summary_shuffle_scope, &
+        summary_target_layer, summary_fraction, &
         summary_network_file, summary_bias_file, &
         n_requested, n_stable, n_marginal, n_unstable, &
         original_entropy, original_min_kappa_in, &
@@ -129,6 +134,8 @@ program test_shuffle_ensemble
     if (trim(summary_coupling) /= "TANH" .or. &
         trim(summary_shuffle_mode) /= "BOTH" .or. &
         trim(summary_shuffle_scope) /= "GLOBAL" .or. &
+        summary_target_layer /= 0 .or. &
+        abs(summary_fraction - 1.0_dp) > epsilon(1.0_dp) .or. &
         trim(summary_network_file) /= "test_network.dat" .or. &
         trim(summary_bias_file) /= "test_bias.dat") then
         error stop "Incorrect shuffle summary metadata"
@@ -157,7 +164,8 @@ program test_shuffle_ensemble
         r = -real(case_id - 1, dp)
         call run_shuffle_ensemble( &
             adjacency, W, bias, r, noise, "LINEAR", "BIAS", &
-            "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
+            "GLOBAL", 0, 1.0_dp, &
+            "test_network.dat", "test_bias.dat", node_layer, &
             .false., .true., 1, 2718, 1.0e-12_dp, 100, 0.0_dp, 0.0_dp, &
             stability_file, energetics_file, summary_file, "test_shuffle_node_layers.csv", spread(0.0_dp * r, 2, 4))
         open(newunit=io_unit, file=stability_file, status="old")

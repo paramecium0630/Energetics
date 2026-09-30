@@ -31,6 +31,8 @@ module parameter_mod
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
         character(len=16) :: shuffle_scope
+        integer :: shuffle_target_layer
+        real(dp) :: shuffle_fraction
 
         ! Simulation
         logical :: run_simulation
@@ -77,6 +79,8 @@ contains
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
         character(len=16) :: shuffle_scope
+        integer :: shuffle_target_layer
+        real(dp) :: shuffle_fraction
 
         real(dp) :: dt
         real(dp) :: t_relax
@@ -92,7 +96,8 @@ contains
                             coupling_type, sigma_mean
 
         namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed, &
-                          shuffle_mode, shuffle_scope
+                          shuffle_mode, shuffle_scope, &
+                          shuffle_target_layer, shuffle_fraction
 
         namelist /simulation/ run_simulation, dt, t_relax, t_sample, lag_steps, seed
 
@@ -120,6 +125,8 @@ contains
         shuffle_seed = 1001
         shuffle_mode = "WEIGHT"
         shuffle_scope = "GLOBAL"
+        shuffle_target_layer = 0
+        shuffle_fraction = 1.0_dp
 
         run_simulation = .true.    
         dt          = 0.001_dp
@@ -191,6 +198,16 @@ contains
         case default
             error stop "shuffle_mode must be WEIGHT, BIAS, or BOTH"
         end select
+        if (shuffle_target_layer < 0) then
+            error stop "shuffle_target_layer must be non-negative"
+        end if
+        if (shuffle_fraction <= 0.0_dp .or. shuffle_fraction > 1.0_dp) then
+            error stop "shuffle_fraction must satisfy 0 < fraction <= 1"
+        end if
+        if (trim(adjustl(shuffle_scope)) == "GLOBAL" .and. &
+            shuffle_target_layer /= 0) then
+            error stop "GLOBAL shuffle requires shuffle_target_layer=0"
+        end if
         if (bias_std < 0.0_dp) then
             error stop "bias_std must be non-negative"
         end if
@@ -219,6 +236,8 @@ contains
         param%shuffle_seed = shuffle_seed
         param%shuffle_mode = shuffle_mode
         param%shuffle_scope = shuffle_scope
+        param%shuffle_target_layer = shuffle_target_layer
+        param%shuffle_fraction = shuffle_fraction
 
         param%run_simulation = run_simulation
         param%dt          = dt

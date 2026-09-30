@@ -4,9 +4,7 @@ module shuffle_mod
     use output_mod, only : write_node_layers
     use precision_mod
     use random_mod, only : initialize_seed, shuffle_real_values
-    use network_mod, only : &
-    shuffle_FCNN_weights, &
-    shuffle_fcnn_weights_by_layer
+    use network_mod, only : shuffle_fcnn_weights
     use langevin_mod, only : construct_Q
     use theory_mod, only : &
         solve_lyapunov_triangular_blocked, &
@@ -25,7 +23,8 @@ contains
     subroutine run_shuffle_ensemble( &
     adj_matrix, W_original, bias_original, &
     r, noise, coupling_type, shuffle_mode, &
-    shuffle_scope, network_file, bias_file, &
+    shuffle_scope, shuffle_target_layer, shuffle_fraction, &
+    network_file, bias_file, &
     node_layer, q_is_upper, q_is_lower, &
     n_shuffle, shuffle_seed, &
     fixedpoint_tolerance, fixedpoint_max_iterations, &
@@ -40,6 +39,8 @@ contains
     real(dp), intent(in) :: r(:)
     real(dp), intent(in) :: noise(:, :)
     character(len=*), intent(in) :: coupling_type, shuffle_mode, shuffle_scope
+    integer, intent(in) :: shuffle_target_layer
+    real(dp), intent(in) :: shuffle_fraction
     character(len=*), intent(in) :: network_file, bias_file
     ! Columns: HR, EPR, WR, UR of the already-computed original node solution.
     real(dp), intent(in) :: original_node_rates(:, :)
@@ -155,6 +156,20 @@ contains
     if (any(layer_counts == 0)) error stop "Empty FCNN layer"
     missing_rate = ieee_value(0.0_dp, ieee_quiet_nan)
 
+    if (shuffle_fraction <= 0.0_dp .or. shuffle_fraction > 1.0_dp) then
+        error stop "shuffle_fraction must satisfy 0 < fraction <= 1"
+    end if
+    if (trim(adjustl(shuffle_scope)) == "GLOBAL") then
+        if (shuffle_target_layer /= 0) then
+            error stop "GLOBAL shuffle requires shuffle_target_layer=0"
+        end if
+    else if (shuffle_target_layer /= 0) then
+        if (shuffle_target_layer < 2 .or. &
+            shuffle_target_layer > n_layers) then
+            error stop "shuffle_target_layer must be 0 or a layer in 2,...,L"
+        end if
+    end if
+
     select case (trim(adjustl(shuffle_scope)))
     case ("GLOBAL", "LAYER")
         continue
@@ -180,6 +195,11 @@ contains
     error stop "shuffle_mode must be WEIGHT, BIAS, or BOTH"
 
     end select
+
+    if (.not. check_weight_distribution .and. &
+        shuffle_fraction /= 1.0_dp) then
+        error stop "shuffle_fraction applies to WEIGHT/BOTH modes only"
+    end if
 
     select case (trim(adjustl(coupling_type)))
     case ("DIFFUSIVE", "LINEAR", "TANH", "TANH_INPUT")
@@ -282,42 +302,21 @@ contains
     W_trial = W_original
     bias_trial = bias_original
 
-    select case (trim(adjustl(shuffle_scope)))
+    if (check_weight_distribution) then
+        call shuffle_fcnn_weights( &
+            adj_matrix, W_trial, node_layer, shuffle_scope, &
+            shuffle_target_layer, shuffle_fraction)
+    end if
 
-    case ("GLOBAL")
-
-    select case (trim(adjustl(shuffle_mode)))
-    case ("WEIGHT")
-        call shuffle_fcnn_weights(adj_matrix, W_trial)
-
-    case ("BIAS")
-        call shuffle_bias_values(bias_trial)
-
-    case ("BOTH")
-        call shuffle_fcnn_weights(adj_matrix, W_trial)
-        call shuffle_bias_values(bias_trial)
-    end select
-
-    case ("LAYER")
-
-    select case (trim(adjustl(shuffle_mode)))
-    case ("WEIGHT")
-        call shuffle_fcnn_weights_by_layer( &
-            adj_matrix, W_trial, node_layer)
-
-    case ("BIAS")
-        call shuffle_bias_values_by_layer( &
-            bias_trial, node_layer)
-
-    case ("BOTH")
-        call shuffle_fcnn_weights_by_layer( &
-            adj_matrix, W_trial, node_layer)
-
-        call shuffle_bias_values_by_layer( &
-            bias_trial, node_layer)
-    end select
-
-    end select
+    if (check_bias_distribution) then
+        select case (trim(adjustl(shuffle_scope)))
+        case ("GLOBAL")
+            call shuffle_bias_values(bias_trial)
+        case ("LAYER")
+            call shuffle_bias_values_by_layer( &
+                bias_trial, node_layer, shuffle_target_layer)
+        end select
+    end if
 
     ! Safety checks: a shuffle may change positions, but it must not
     ! change the topology or the network-wide value distributions.
@@ -469,6 +468,7 @@ contains
 
     write(summary_unit, '(A)') &
         "coupling_type,shuffle_mode,shuffle_scope," // &
+        "shuffle_target_layer,shuffle_fraction," // &
         "network_file,bias_file," // &
         "n_requested,n_stable,n_marginal,n_unstable," // &
         "original_entropy,original_min_kappa_in," // &
@@ -476,9 +476,10 @@ contains
         "original_max_kappa_in,original_max_kappa_out,shuffle_seed"
 
     write(summary_unit, &
-        '(A,",",A,",",A,",",A,",",A,",",*(G0,:,","))') &
+        '(A,",",A,",",A,",",I0,",",G0,",",A,",",A,",",*(G0,:,","))') &
         trim(adjustl(coupling_type)), trim(adjustl(shuffle_mode)), &
         trim(adjustl(shuffle_scope)), &
+        shuffle_target_layer, shuffle_fraction, &
         trim(network_file), trim(bias_file), &
         n_shuffle, n_stable, n_marginal, n_unstable, &
         original_total_entropy, original_min_kappa_in, &
@@ -714,11 +715,13 @@ contains
 
     end subroutine shuffle_bias_values
 
-    subroutine shuffle_bias_values_by_layer(bias, node_layer)
+    subroutine shuffle_bias_values_by_layer( &
+        bias, node_layer, shuffle_target_layer)
 
     real(dp), intent(inout) :: bias(:)
     integer, intent(in) :: node_layer(:)
-    integer :: n, n_layers
+    integer, intent(in) :: shuffle_target_layer
+    integer :: n, n_layers, first_layer, last_layer
     integer :: layer, i
     integer :: n_nodes_in_layer
 
@@ -740,7 +743,19 @@ contains
 
     n_layers = maxval(node_layer)
 
-    do layer = 1, n_layers
+    if (shuffle_target_layer == 0) then
+        first_layer = 1
+        last_layer = n_layers
+    else
+        if (shuffle_target_layer < 1 .or. &
+            shuffle_target_layer > n_layers) then
+            error stop "Bias shuffle target layer is outside 1,...,L"
+        end if
+        first_layer = shuffle_target_layer
+        last_layer = shuffle_target_layer
+    end if
+
+    do layer = first_layer, last_layer
 
         n_nodes_in_layer = count(node_layer == layer)
 

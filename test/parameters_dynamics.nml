@@ -20,6 +20,9 @@
     n_weight_shuffles = 0
     shuffle_seed = 10
     shuffle_mode = "BOTH"
+    shuffle_scope = "LAYER"
+    shuffle_target_layer = 2
+    shuffle_fraction = 0.5
 /
 
 &simulation

@@ -45,7 +45,7 @@ program test_linear_coupling
     adjacency(2,1) = .true.
     node_layer = [1, 2]
     call run_shuffle_ensemble(adjacency, W, bias, r, noise, "LINEAR", "BOTH", &
-        "GLOBAL", "test_network.dat", "test_bias.dat", node_layer, &
+        "GLOBAL", 0, 1.0_dp, "test_network.dat", "test_bias.dat", node_layer, &
         .false., .true., 2, 2718, tol, 100, sum(entropy), -2.0_dp, &
         "test_linear_stability.csv", "test_linear_energetics.csv", "test_linear_summary.csv", &
         "test_linear_node_layers.csv", reshape([heat, entropy, work, internal], [2, 4]))
