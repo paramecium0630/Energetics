@@ -52,6 +52,7 @@ contains
 
     integer, intent(in) :: n_shuffle
     integer, intent(in) :: shuffle_seed
+    integer :: source_node, target_node
     real(dp), intent(in) :: fixedpoint_tolerance
     integer, intent(in) :: fixedpoint_max_iterations
 
@@ -306,6 +307,26 @@ contains
         call shuffle_fcnn_weights( &
             adj_matrix, W_trial, node_layer, shuffle_scope, &
             shuffle_target_layer, shuffle_fraction)
+
+        if (shuffle_id == 1) then
+        write(999, *) "First shuffle: changed weights"
+        write(999, *) "source -> target: original -> shuffled"
+
+        do source_node = 1, n
+            do target_node = 1, n
+            if (.not. adj_matrix(target_node, source_node)) cycle
+
+            if (W_trial(target_node, source_node) == &
+                W_original(target_node, source_node)) cycle
+
+            write(999, '(I0,A,I0,A,ES14.6,A,ES14.6)') &
+                source_node, " -> ", target_node, ": ", &
+                W_original(target_node, source_node), " -> ", &
+                W_trial(target_node, source_node)
+            end do
+        end do
+    end if
+        
     end if
 
     if (check_bias_distribution) then

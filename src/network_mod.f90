@@ -249,6 +249,7 @@ contains
                     end if
                     if (.not. eligible) cycle
                     edge_index = edge_index + 1
+                    ! Store the source and target node indices of eligible edges.
                     source_indices(edge_index) = source_node
                     target_indices(edge_index) = target_node
                 end do

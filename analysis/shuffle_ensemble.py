@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
-# output_dir = project_dir / "output" / "shuffle"
-output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "all"
+output_dir = project_dir / "output" / "shuffle"
+# output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "all"
 figure_dir = project_dir / "figure"
 figure_dir.mkdir(exist_ok=True)
 
@@ -310,5 +310,126 @@ else:
 #     dpi=300,
 #     bbox_inches="tight",
 # )
+
+# One-off comparison of 5%, 20%, and 100% GLOBAL weight shuffles.
+# Keep these paths explicit because this figure is only needed for this dataset.
+global_shuffle_dirs = {
+    "5%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction005",
+    "20%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction02",
+    "100%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all",
+}
+global_colors = {"5%": "tab:blue", "20%": "tab:orange", "100%": "tab:green"}
+global_total_epr = {}
+global_layer_epr = {}
+comparison_original_layers = None
+
+for fraction_label, data_dir in global_shuffle_dirs.items():
+    comparison_trials = pd.read_csv(data_dir / "shuffle_trials.csv")
+    comparison_layers = pd.read_csv(data_dir / "shuffle_layer_energetics.csv")
+    comparison_trials["stability"] = comparison_trials["stability"].str.strip()
+    stable_ids = comparison_trials.loc[
+        comparison_trials["stability"] == "stable", "id"
+    ]
+
+    reference_rows = comparison_layers.loc[comparison_layers["id"] == 0].copy()
+    if comparison_original_layers is None:
+        comparison_original_layers = reference_rows
+
+    stable_layers = comparison_layers.loc[
+        comparison_layers["id"].isin(stable_ids)
+    ].copy()
+    n_layers = reference_rows["Layer"].nunique()
+    total_epr = stable_layers.groupby("id")["EPR_total"].sum(
+        min_count=n_layers
+    ).dropna()
+    global_total_epr[fraction_label] = total_epr
+    global_layer_epr[fraction_label] = stable_layers
+
+# Overlay the total-EPR distributions using common bin edges.
+all_total_values = np.concatenate([values.to_numpy() for values in global_total_epr.values()])
+total_bins = np.histogram_bin_edges(all_total_values, bins=30)
+comparison_fig, comparison_ax = plt.subplots(figsize=(8, 6))
+for fraction_label, values in global_total_epr.items():
+    comparison_ax.hist(
+        values,
+        bins=total_bins,
+        alpha=0.4,
+        linewidth=2,
+        color=global_colors[fraction_label],
+        label=(f"Global shuffle {fraction_label} "
+               f"(mean={values.mean():.4g}, N={len(values)})"),
+    )
+comparison_original_epr = comparison_original_layers["EPR_total"].sum()
+comparison_ax.axvline(
+    comparison_original_epr,
+    color="red",
+    linestyle="--",
+    linewidth=2,
+    label=f"Original EPR ({comparison_original_epr:.4g})",
+)
+comparison_ax.set_xlabel("Total entropy production rate", fontsize=14)
+comparison_ax.set_ylabel("Count", fontsize=14)
+comparison_ax.set_title("Global shuffle: total EPR")
+comparison_ax.legend(fontsize=12)
+comparison_ax.grid(alpha=0.2)
+comparison_fig.tight_layout()
+comparison_fig.savefig(
+    figure_dir / "global_shuffle_epr_comparison.png",
+    dpi=300,
+    bbox_inches="tight",
+)
+
+# Make the same overlaid comparison separately for every layer.
+comparison_original_layers = comparison_original_layers.sort_values("Layer")
+n_comparison_layers = len(comparison_original_layers)
+ncols = min(3, n_comparison_layers)
+nrows = (n_comparison_layers + ncols - 1) // ncols
+comparison_layer_fig, comparison_layer_axes = plt.subplots(
+    nrows, ncols, figsize=(5 * ncols, 4 * nrows), squeeze=False,
+)
+for ax, reference_row in zip(
+    comparison_layer_axes.flat,
+    comparison_original_layers.itertuples(index=False),
+):
+    layer_values = {
+        fraction_label: rows.loc[
+            rows["Layer"] == reference_row.Layer, "EPR_total"
+        ].dropna()
+        for fraction_label, rows in global_layer_epr.items()
+    }
+    all_layer_values = np.concatenate(
+        [values.to_numpy() for values in layer_values.values()]
+    )
+    layer_bins = np.histogram_bin_edges(all_layer_values, bins=30)
+    for fraction_label, values in layer_values.items():
+        ax.hist(
+            values,
+            bins=layer_bins,
+            alpha=0.4,
+            linewidth=2,
+            color=global_colors[fraction_label],
+            label=f"{fraction_label} (mean={values.mean():.4g})",
+        )
+    ax.axvline(
+        reference_row.EPR_total,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label=f"Original ({reference_row.EPR_total:.4g})",
+    )
+    ax.set_title(f"Layer {reference_row.Layer} (N={reference_row.node_count})")
+    ax.set_xlabel("Layer total EPR", fontsize=14)
+    ax.set_ylabel("Count", fontsize=14)
+    ax.legend(fontsize=12)
+    ax.grid(alpha=0.2)
+for ax in list(comparison_layer_axes.flat)[n_comparison_layers:]:
+    ax.set_visible(False)
+comparison_layer_fig.suptitle("Global shuffle: layer EPR")
+comparison_layer_fig.tight_layout()
+comparison_layer_fig.savefig(
+    figure_dir / "global_shuffle_layer_epr_comparison.png",
+    dpi=300,
+    bbox_inches="tight",
+)
 
 plt.show()
