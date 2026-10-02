@@ -311,14 +311,20 @@ else:
 #     bbox_inches="tight",
 # )
 
-# One-off comparison of 5%, 20%, and 100% GLOBAL weight shuffles.
+# One-off comparison of three GLOBAL shuffles and one LAYER shuffle.
 # Keep these paths explicit because this figure is only needed for this dataset.
 global_shuffle_dirs = {
-    "5%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction005",
-    "20%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction02",
-    "100%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all",
+    "Global 5%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction005",
+    "Global 20%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction02",
+    "Global 100%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all",
+    "Shuffle by layer": project_dir / "shuffle_data" / "mnist256x1_linear" / "layer",
 }
-global_colors = {"5%": "tab:blue", "20%": "tab:orange", "100%": "tab:green"}
+global_colors = {
+    "Global 5%": "tab:blue",
+    "Global 20%": "tab:orange",
+    "Global 100%": "tab:green",
+    "Shuffle by layer": "tab:purple",
+}
 global_total_epr = {}
 global_layer_epr = {}
 comparison_original_layers = None
@@ -338,14 +344,19 @@ for fraction_label, data_dir in global_shuffle_dirs.items():
     stable_layers = comparison_layers.loc[
         comparison_layers["id"].isin(stable_ids)
     ].copy()
+    original_by_layer = reference_rows.set_index("Layer")["EPR_total"]
+    stable_layers["EPR_change"] = (
+        stable_layers["EPR_total"]
+        - stable_layers["Layer"].map(original_by_layer)
+    )
     n_layers = reference_rows["Layer"].nunique()
     total_epr = stable_layers.groupby("id")["EPR_total"].sum(
         min_count=n_layers
-    ).dropna()
+    ).dropna() - reference_rows["EPR_total"].sum()
     global_total_epr[fraction_label] = total_epr
     global_layer_epr[fraction_label] = stable_layers
 
-# Overlay the total-EPR distributions using common bin edges.
+# Overlay the total-EPR changes using common bin edges.
 all_total_values = np.concatenate([values.to_numpy() for values in global_total_epr.values()])
 total_bins = np.histogram_bin_edges(all_total_values, bins=30)
 comparison_fig, comparison_ax = plt.subplots(figsize=(8, 6))
@@ -356,20 +367,18 @@ for fraction_label, values in global_total_epr.items():
         alpha=0.4,
         linewidth=2,
         color=global_colors[fraction_label],
-        label=(f"Global shuffle {fraction_label} "
-               f"(mean={values.mean():.4g}, N={len(values)})"),
+        label=f"{fraction_label} (mean={values.mean():.4g}, N={len(values)})",
     )
-comparison_original_epr = comparison_original_layers["EPR_total"].sum()
 comparison_ax.axvline(
-    comparison_original_epr,
+    0.0,
     color="red",
     linestyle="--",
     linewidth=2,
-    label=f"Original EPR ({comparison_original_epr:.4g})",
+    label=r"Original network ($\Delta EPR=0$)",
 )
-comparison_ax.set_xlabel("Total entropy production rate", fontsize=14)
+comparison_ax.set_xlabel(r"$\Delta EPR_{\mathrm{net}}$", fontsize=14)
 comparison_ax.set_ylabel("Count", fontsize=14)
-comparison_ax.set_title("Global shuffle: total EPR")
+comparison_ax.set_title("Change in total EPR after shuffling")
 comparison_ax.legend(fontsize=12)
 comparison_ax.grid(alpha=0.2)
 comparison_fig.tight_layout()
@@ -379,7 +388,7 @@ comparison_fig.savefig(
     bbox_inches="tight",
 )
 
-# Make the same overlaid comparison separately for every layer.
+# Make the same EPR-change comparison separately for every layer.
 comparison_original_layers = comparison_original_layers.sort_values("Layer")
 n_comparison_layers = len(comparison_original_layers)
 ncols = min(3, n_comparison_layers)
@@ -393,7 +402,7 @@ for ax, reference_row in zip(
 ):
     layer_values = {
         fraction_label: rows.loc[
-            rows["Layer"] == reference_row.Layer, "EPR_total"
+            rows["Layer"] == reference_row.Layer, "EPR_change"
         ].dropna()
         for fraction_label, rows in global_layer_epr.items()
     }
@@ -411,20 +420,20 @@ for ax, reference_row in zip(
             label=f"{fraction_label} (mean={values.mean():.4g})",
         )
     ax.axvline(
-        reference_row.EPR_total,
+        0.0,
         color="red",
         linestyle="--",
         linewidth=2,
-        label=f"Original ({reference_row.EPR_total:.4g})",
+        label=r"Original ($\Delta EPR=0$)",
     )
     ax.set_title(f"Layer {reference_row.Layer} (N={reference_row.node_count})")
-    ax.set_xlabel("Layer total EPR", fontsize=14)
+    ax.set_xlabel(r"$\Delta EPR_{\mathrm{layer}}$", fontsize=14)
     ax.set_ylabel("Count", fontsize=14)
     ax.legend(fontsize=12)
     ax.grid(alpha=0.2)
 for ax in list(comparison_layer_axes.flat)[n_comparison_layers:]:
     ax.set_visible(False)
-comparison_layer_fig.suptitle("Global shuffle: layer EPR")
+comparison_layer_fig.suptitle("Change in layer EPR after shuffling")
 comparison_layer_fig.tight_layout()
 comparison_layer_fig.savefig(
     figure_dir / "global_shuffle_layer_epr_comparison.png",
