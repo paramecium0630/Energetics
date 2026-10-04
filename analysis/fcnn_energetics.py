@@ -14,7 +14,7 @@ from energetics_io import read_node_energetics
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # INPUT_FILE = PROJECT_ROOT / "output" / "energetics_theory.csv"
-INPUT_FILE = PROJECT_ROOT / "shuffle_data" / "mnist256x1_linear" / "energetics_theory.csv"
+INPUT_FILE = PROJECT_ROOT / "shuffle_data" / "mnist256x3_linear" / "energetics_theory.csv"
 
 FIGURE_DIR = PROJECT_ROOT / "figure"
 

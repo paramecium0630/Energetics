@@ -17,7 +17,7 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-directory = "input/uniform/mnist256x1_self1"
+directory = "input/uniform/mnist256x3_self1"
 # directory = "/home/para/Python/FCNN/input/uniform/mnist256x1_self1"
 
 base_dir = Path("/home/para/Fortran/Energetics")
@@ -862,4 +862,4 @@ print("------------------------------------")
 print("\t".join(excel_headers))
 print("\t".join(f"{value:.10g}" for value in excel_values))
 
-# plt.show()
+plt.show()

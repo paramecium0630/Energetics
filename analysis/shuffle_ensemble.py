@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
-output_dir = project_dir / "output" / "shuffle"
-# output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "all"
+# output_dir = project_dir / "output" / "shuffle"
+output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "layer_fraction02"
 figure_dir = project_dir / "figure"
 figure_dir.mkdir(exist_ok=True)
 
@@ -314,10 +314,10 @@ else:
 # One-off comparison of three GLOBAL shuffles and one LAYER shuffle.
 # Keep these paths explicit because this figure is only needed for this dataset.
 global_shuffle_dirs = {
-    "Global 5%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction005",
-    "Global 20%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all_fraction02",
-    "Global 100%": project_dir / "shuffle_data" / "mnist256x1_linear" / "all",
-    "Shuffle by layer": project_dir / "shuffle_data" / "mnist256x1_linear" / "layer",
+    "Global 5%": project_dir / "shuffle_data" / "mnist256x2_linear" / "all_fraction005",
+    "Global 20%": project_dir / "shuffle_data" / "mnist256x2_linear" / "all_fraction02",
+    "Global 100%": project_dir / "shuffle_data" / "mnist256x2_linear" / "all",
+    "Shuffle by layer": project_dir / "shuffle_data" / "mnist256x2_linear" / "layer",
 }
 global_colors = {
     "Global 5%": "tab:blue",
@@ -441,4 +441,4 @@ comparison_layer_fig.savefig(
     bbox_inches="tight",
 )
 
-plt.show()
+# plt.show()
