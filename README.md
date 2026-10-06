@@ -206,7 +206,7 @@ Energetics/
 ├── output/                         Fortran 執行結果
 ├── analysis/
 │   ├── plot_simulation_vs_theory.py   simulation/theory 對比圖
-│   ├── analyze_fcnn_inputs.py         FCNN weight/bias layer statistics
+│   ├── fcnn_inputs.py                 FCNN weight/bias layer statistics
 │   ├── analyze_fcnn_energetics.py     FCNN 逐層理論 energetics
 │   └── fcnn.py                        獨立的 layer-level 理論腳本
 ├── figure/                         圖片輸出
@@ -466,16 +466,21 @@ Ktau       = <delta_x(t) delta_x(t-tau)^T>
 
 ## 輸出檔案
 
-所有新 CSV 第一列就是欄名，使用 `pd.read_csv(path)`，不需要 `skiprows=1`。
+Energetics 與 parameter CSV 的第一列就是欄名。沿用舊格式的 `node.csv`、
+`edge.csv` 第一列是標題、第二列才是欄名，讀取時使用 `skiprows=1`。
 
 ### 單次執行（`n_weight_shuffles=0`）
 
 - `output/energetics_theory.csv`：每個節點的理論速率。
 - `output/energetics_simulation.csv`：啟用模擬時的每節點時間平均速率。
+- `output/node.csv`：原始網路的 layer、r、noise、fixed point 與 bias。
+- `output/edge.csv`：原始網路現有 edge 的 `target,source,weight`。
+- `output/fcnn_parameters.csv`：內部生成 FCNN 的逐層 Gaussian weight
+  mean/std、層大小、r、noise、seed 與 coupling；外部網路不寫此檔。
 
 兩者皆只有 `Node,Layer,HR,EPR,WR,UR` 六欄。FCNN 的 Layer 從 1 開始；
 非 FCNN 為 0。所有速率都是節點值，按 Layer 加總才是層總值。
-不再寫出 node/edge/mean/correlation CSV 或重複的逐層、逐節點理論表。
+不再寫出 mean/correlation CSV 或重複的逐層、逐節點理論表。
 計算與終端診斷仍保留；此變更不修改動力學或 energetics 定義。
 
 ### Shuffle 執行（`n_weight_shuffles>0`）
@@ -508,7 +513,7 @@ Python 加總時需保留缺值，例如 `sum(min_count=layer_count)`，避免�
 
 
 程式不刪除既有舊輸出。切換模式時請使用乾淨的 output 目錄或分開封存每次
-執行；舊 node/edge/mean/correlation、`energetics.csv`、`*_by_layer.csv`、
+執行；舊 mean/correlation、`energetics.csv`、`*_by_layer.csv`、
 `shuffle_stability.csv`、`shuffle_energetics.csv` 不再由主程式更新。
 
 
@@ -607,10 +612,23 @@ python3 analysis/plot_simulation_vs_theory.py
 檢查 FCNN weight/bias data 並輸出 layer statistics 與圖片：
 
 ```bash
-python3 analysis/analyze_fcnn_inputs.py
+python3 analysis/fcnn_inputs.py
 ```
 
-注意：`analyze_fcnn_inputs.py` 目前以絕對路徑選用 `input/mnistx6/`，切換 dataset 或移動專案後需先修改檔案頂部的 paths。
+預設讀取單次 Fortran FCNN 輸出的 `output/edge.csv` 與 `node.csv`。
+內部生成 FCNN 若另有 `fcnn_parameters.csv`，會逐個 layer connection 顯示
+empirical histogram、指定 Gaussian PDF、Q-Q plot、sample/target mean/std
+及有限樣本 z-score。EXTERNAL 網路沒有生成 metadata，程式會自動改用
+sample mean/std 的 fitted Gaussian，只檢查形狀而不報生成 law 的 z-score。
+讀取訓練後的 FCNN 檔案時使用：
+
+```bash
+python3 analysis/fcnn_inputs.py \
+  --source input --directory input/mnist100x1_cycle
+```
+
+input 模式沒有生成時的 Gaussian 參數，因此 Gaussian 曲線以該 layer block
+的 sample mean/std 擬合，只用於檢查分布形狀，不提供生成 law 的 z-score。
 
 分析 Fortran 輸出的 FCNN 逐節點／逐層理論 energetics：
 

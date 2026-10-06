@@ -215,6 +215,59 @@ contains
         close(io_unit)
     end subroutine write_node_layers
 
+    subroutine write_fcnn_parameters( &
+        filename, layer_sizes, weight_means, weight_stds, &
+        r, noise, seed, n_samples, coupling_type)
+        ! Record the Gaussian law used for every adjacent FCNN weight block.
+        ! Both a single generated network and the Gaussian ensemble use this
+        ! writer, so the analysis code has one metadata schema to read.
+        character(len=*), intent(in) :: filename, coupling_type
+        integer, intent(in) :: layer_sizes(:), seed, n_samples
+        real(dp), intent(in) :: weight_means(:), weight_stds(:)
+        real(dp), intent(in) :: r(:), noise(:,:)
+        integer :: layer, first_node, n_layers, io_unit, io_status
+
+        n_layers = size(layer_sizes)
+        if (n_layers < 2 .or. any(layer_sizes <= 0)) then
+            error stop "Invalid FCNN layer sizes"
+        end if
+        if (size(weight_means) /= n_layers - 1 .or. &
+            size(weight_stds) /= n_layers - 1) then
+            error stop "FCNN Gaussian parameter count mismatch"
+        end if
+        if (any(weight_stds < 0.0_dp)) then
+            error stop "FCNN weight standard deviations must be non-negative"
+        end if
+        if (size(r) /= sum(layer_sizes) .or. &
+            size(noise, 1) /= size(r) .or. size(noise, 2) /= size(r)) then
+            error stop "FCNN parameter output size mismatch"
+        end if
+        if (n_samples <= 0) error stop "FCNN sample count must be positive"
+
+        open(newunit=io_unit, file=filename, status="replace", &
+             action="write", iostat=io_status)
+        if (io_status /= 0) error stop "Cannot open FCNN parameter output"
+        write(io_unit, '(A)') &
+            "Layer,node_count,weight_mean,weight_std,r,noise,seed,n__samples,coupling_type"
+        first_node = 1
+        do layer = 1, n_layers
+            if (layer == 1) then
+                write(io_unit, '(*(G0,:,","))') &
+                    layer, layer_sizes(layer), 0.0_dp, 0.0_dp, &
+                    r(first_node), noise(first_node, first_node), &
+                    seed, n_samples, trim(coupling_type)
+            else
+                write(io_unit, '(*(G0,:,","))') &
+                    layer, layer_sizes(layer), weight_means(layer - 1), &
+                    weight_stds(layer - 1), r(first_node), &
+                    noise(first_node, first_node), seed, n_samples, &
+                    trim(coupling_type)
+            end if
+            first_node = first_node + layer_sizes(layer)
+        end do
+        close(io_unit)
+    end subroutine write_fcnn_parameters
+
     subroutine write_energetics_by_node_and_layer( &
         filename, node_layer, heat_rate, work_rate, &
         internal_rate, entropy_rate)

@@ -7,7 +7,7 @@ module gaussian_mod
     use theory_mod, only : solve_fixed_point_nonlinear, solve_lyapunov_triangular_blocked, &
         analytic_result, compute_energetics_theory, compute_lyapunov_residual
     use energetics_mod, only : aggregate_layer_energetics
-    use output_mod, only : write_node_layers
+    use output_mod, only : write_node_layers, write_fcnn_parameters
     implicit none
     private
     public :: run_gaussian_ensemble
@@ -23,7 +23,7 @@ contains
         real(dp), allocatable :: heat(:), work(:), internal(:), entropy(:)
         real(dp), allocatable :: lh(:), lw(:), lu(:), le(:), norms(:)
         integer, allocatable :: counts(:)
-        integer :: sample, ell, i, total_unit, layer_unit, meta_unit, ios, n_stable
+        integer :: sample, ell, i, total_unit, layer_unit, ios, n_stable
         real(dp) :: max_real, tol, residual, missing, total
         character(len=8) :: status
 
@@ -34,21 +34,9 @@ contains
         if (ios /= 0) error stop "Cannot open Gaussian trials output"
         open(newunit=layer_unit, file=directory//"/gaussian_layer_energetics.csv", status="replace", iostat=ios)
         if (ios /= 0) error stop "Cannot open Gaussian layer output"
-        open(newunit=meta_unit, file=directory//"/gaussian_parameters.csv", status="replace", iostat=ios)
-        if (ios /= 0) error stop "Cannot open Gaussian parameters output"
-        write(meta_unit,'(A)') "Layer,node_count,weight_mean,weight_std,r,noise,seed,n__samples,coupling_type"
-        i = 1
-        do ell=1,size(sizes)
-            if (ell == 1) then
-                write(meta_unit,'(*(G0,:,","))') ell,sizes(ell),0.0_dp,0.0_dp, &
-                    r(i),noise(i,i),param%seed,param%n__samples,trim(param%coupling_type)
-            else
-                write(meta_unit,'(*(G0,:,","))') ell,sizes(ell),means(ell-1),stds(ell-1), &
-                    r(i),noise(i,i),param%seed,param%n__samples,trim(param%coupling_type)
-            end if
-            i=i+sizes(ell)
-        end do
-        close(meta_unit)
+        call write_fcnn_parameters( &
+            directory//"/gaussian_parameters.csv", sizes, means, stds, &
+            r, noise, param%seed, param%n__samples, param%coupling_type)
         write(total_unit,'(A)') "id,stability,max_real_part,EPR_total,weight_norm_sq,lyapunov_residual"
         write(layer_unit,'(A)') "id,Layer,node_count,HR_total,EPR_total,WR_total,UR_total,weight_norm_sq"
         n_stable=0

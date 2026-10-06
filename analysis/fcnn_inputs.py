@@ -1,11 +1,21 @@
-"""讀取並分析 FCNN 的 weighted edge list 與 bias。
+"""讀取並分析 FCNN 的逐層權重與 bias。
 
-這支程式會處理 weight_matrix.dat 與 bias.dat。
+data_source="input" 會處理 weight_matrix.dat 與 bias.dat；
+data_source="output" 會處理 Fortran 產生的 edge.csv、node.csv；若有
+fcnn_parameters.csv，會將實際權重和指定的逐層 Gaussian law 比較，
+否則以每層 sample mean/std 畫 fitted Gaussian 形狀參考。
 請從任何位置使用下面的命令執行：
 
-    python3 /home/para/Fortran/Energetics/analysis/analyze_fcnn_inputs.py
+    python3 /home/para/Fortran/Energetics/analysis/fcnn_inputs.py
+
+讀取訓練權重時使用：
+
+    python3 /home/para/Fortran/Energetics/analysis/fcnn_inputs.py \
+        --source input --directory input/mnist100x1_cycle
 """
 
+import argparse
+from statistics import NormalDist
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,13 +27,41 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-# directory = "input/uniform/mnist256x3_self1"
-directory = "input/mnist100x1_cycle"
+parser = argparse.ArgumentParser(
+    description="Inspect FCNN weights, biases, and layer strengths."
+)
+parser.add_argument(
+    "--source", choices=("output", "input"), default="output",
+    help="output: Fortran-generated FCNN; input: trained edge/bias files",
+)
+parser.add_argument(
+    "--directory", default=None,
+    help="directory relative to the project root (default: output)",
+)
+parser.add_argument(
+    "--base-dir", type=Path, default=Path(__file__).resolve().parents[1],
+    help=argparse.SUPPRESS,
+)
+arguments = parser.parse_args()
 
-base_dir = Path("/home/para/Fortran/Energetics")
+base_dir = arguments.base_dir.resolve()
+data_source = arguments.source
+selected_directory = arguments.directory
 
-weight_file = base_dir / directory / "weighted_matrix.dat"
-bias_file   = base_dir / directory / "bias.dat"
+if data_source == "output":
+    directory = selected_directory or "output"
+    weight_file = base_dir / directory / "edge.csv"
+    node_file = base_dir / directory / "node.csv"
+    parameter_file = base_dir / directory / "fcnn_parameters.csv"
+    bias_file = None
+elif data_source == "input":
+    if selected_directory is None:
+        parser.error("--directory is required when --source=input")
+    directory = selected_directory
+    weight_file = base_dir / directory / "weighted_matrix.dat"
+    bias_file = base_dir / directory / "bias.dat"
+    node_file = None
+    parameter_file = None
 
 # -----------------------------------------------------------------------------
 # 2. 讀取 weighted edge list
@@ -32,12 +70,27 @@ bias_file   = base_dir / directory / "bias.dat"
 if not weight_file.exists():
     raise FileNotFoundError(f"Cannot find weight file: {weight_file}")
 
-weights = pd.read_csv(
-    weight_file,
-    sep=r"\s+",
-    comment="#",
-    names=["target", "source", "weight"],
-    dtype={"target": "int64", "source": "int64", "weight": "float64"},
+if data_source == "output":
+    # The first line is the human-readable title "Edge Results"; the second
+    # line is the CSV header. Fortran stores W(target, source).
+    weights = pd.read_csv(weight_file, skiprows=1, skipinitialspace=True)
+    weights.columns = weights.columns.str.strip()
+else:
+    weights = pd.read_csv(
+        weight_file,
+        sep=r"\s+",
+        comment="#",
+        names=["target", "source", "weight"],
+        dtype={"target": "int64", "source": "int64", "weight": "float64"},
+    )
+
+required_weight_columns = {"target", "source", "weight"}
+if not required_weight_columns <= set(weights.columns):
+    raise ValueError(
+        f"Weight file must contain columns {sorted(required_weight_columns)}"
+    )
+weights = weights[["target", "source", "weight"]].astype(
+    {"target": "int64", "source": "int64", "weight": "float64"}
 )
 
 
@@ -358,6 +411,102 @@ for connection in connection_pairs.itertuples(index=False):
 
 weight_statistics = pd.DataFrame(statistics_rows)
 
+# For an internally generated FCNN, compare each empirical W_(ell,ell-1)
+# block against the Gaussian parameters that generated it. EXTERNAL networks
+# have no generating law in the Fortran input, so output mode falls back to a
+# fitted Gaussian instead of pretending that fitted parameters were specified.
+has_specified_gaussian = (
+    data_source == "output" and parameter_file.exists()
+)
+if has_specified_gaussian:
+    gaussian_parameters = pd.read_csv(parameter_file, skipinitialspace=True)
+    gaussian_parameters.columns = gaussian_parameters.columns.str.strip()
+    required_parameter_columns = {
+        "Layer", "node_count", "weight_mean", "weight_std"
+    }
+    if not required_parameter_columns <= set(gaussian_parameters.columns):
+        raise ValueError("FCNN Gaussian metadata has missing columns")
+    if gaussian_parameters["Layer"].duplicated().any():
+        raise ValueError("FCNN Gaussian metadata has duplicate layers")
+    if (gaussian_parameters["weight_std"] < 0.0).any():
+        raise ValueError("FCNN Gaussian metadata has a negative standard deviation")
+    metadata_counts = gaussian_parameters.set_index("Layer")["node_count"].sort_index()
+    topology_counts = pd.Series(
+        {layer_number: len(nodes) for layer_number, nodes in enumerate(layers, start=1)},
+        name="node_count",
+    )
+    if not metadata_counts.equals(topology_counts):
+        raise ValueError("FCNN Gaussian metadata and edge topology have different layer sizes")
+
+    target_parameters = gaussian_parameters.loc[
+        gaussian_parameters["Layer"] > 1,
+        ["Layer", "weight_mean", "weight_std"],
+    ].rename(columns={
+        "Layer": "target_layer",
+        "weight_mean": "expected_mean",
+        "weight_std": "expected_std",
+    })
+    weight_statistics = weight_statistics.merge(
+        target_parameters,
+        on="target_layer",
+        how="left",
+        validate="many_to_one",
+    )
+    adjacent = (
+        weight_statistics["target_layer"]
+        == weight_statistics["source_layer"] + 1
+    )
+    if not adjacent.all():
+        raise ValueError(
+            "Gaussian metadata only defines adjacent FCNN layer connections"
+        )
+    if weight_statistics[["expected_mean", "expected_std"]].isna().any().any():
+        raise ValueError("Missing Gaussian parameters for a layer connection")
+
+    # Under the stated independent Gaussian model, these are the exact
+    # standard error of the mean and the large-N approximation for sample std.
+    positive_std = weight_statistics["expected_std"] > 0.0
+    std_testable = positive_std & (weight_statistics["edge_count"] > 1)
+    weight_statistics["mean_standard_error"] = 0.0
+    weight_statistics["mean_z_score"] = np.nan
+    weight_statistics["std_standard_error_approx"] = 0.0
+    weight_statistics["std_z_score_approx"] = np.nan
+    weight_statistics.loc[positive_std, "mean_standard_error"] = (
+        weight_statistics.loc[positive_std, "expected_std"]
+        / np.sqrt(weight_statistics.loc[positive_std, "edge_count"])
+    )
+    weight_statistics.loc[positive_std, "mean_z_score"] = (
+        weight_statistics.loc[positive_std, "mean"]
+        - weight_statistics.loc[positive_std, "expected_mean"]
+    ) / weight_statistics.loc[positive_std, "mean_standard_error"]
+    weight_statistics.loc[std_testable, "std_standard_error_approx"] = (
+        weight_statistics.loc[std_testable, "expected_std"]
+        / np.sqrt(
+            2.0 * (weight_statistics.loc[std_testable, "edge_count"] - 1)
+        )
+    )
+    weight_statistics.loc[std_testable, "std_z_score_approx"] = (
+        weight_statistics.loc[std_testable, "standard_deviation"]
+        - weight_statistics.loc[std_testable, "expected_std"]
+    ) / weight_statistics.loc[std_testable, "std_standard_error_approx"]
+else:
+    # Trained or EXTERNAL weights have no stated generating Gaussian in these
+    # files. A fitted Gaussian remains useful as a shape reference, but no
+    # hypothesis z-score is reported for it.
+    if data_source == "output":
+        print()
+        print(
+            "Gaussian metadata is absent; using each layer block's sample "
+            "mean/std as a fitted shape reference. This does not test a "
+            "specified generating distribution."
+        )
+    weight_statistics["expected_mean"] = weight_statistics["mean"]
+    weight_statistics["expected_std"] = weight_statistics["standard_deviation"]
+    weight_statistics["mean_standard_error"] = np.nan
+    weight_statistics["mean_z_score"] = np.nan
+    weight_statistics["std_standard_error_approx"] = np.nan
+    weight_statistics["std_z_score_approx"] = np.nan
+
 print()
 print("Weight summary by layer connection")
 print("----------------------------------")
@@ -373,6 +522,14 @@ weight_columns_for_terminal = [
     "rms_weight"
 ]
 
+if has_specified_gaussian:
+    weight_columns_for_terminal.extend([
+        "expected_mean",
+        "expected_std",
+        "mean_z_score",
+        "std_z_score_approx",
+    ])
+
 weight_summary_for_terminal = weight_statistics[
     weight_columns_for_terminal
 ].round(6)
@@ -384,21 +541,37 @@ print(weight_summary_for_terminal.to_string(index=False))
 # 13. 讀取 bias.dat
 # -----------------------------------------------------------------------------
 
-if not bias_file.exists():
-    raise FileNotFoundError(f"Cannot find bias file: {bias_file}")
-
-biases = pd.read_csv(
-    bias_file,
-    sep=r"\s+",
-    comment="#",
-    names=["node", "layer", "local_node", "bias"],
-    dtype={
-        "node": "int64",
-        "layer": "int64",
-        "local_node": "int64",
-        "bias": "float64",
-    },
-)
+if data_source == "output":
+    if not node_file.exists():
+        raise FileNotFoundError(f"Cannot find node file: {node_file}")
+    # The generated node table contains every node, including zero biases.
+    biases = pd.read_csv(node_file, skiprows=1, skipinitialspace=True)
+    biases.columns = biases.columns.str.strip()
+    biases = biases.rename(columns={"Node Index": "node"})
+    required_node_columns = {"node", "layer", "bias"}
+    if not required_node_columns <= set(biases.columns):
+        raise ValueError("node.csv is missing node, layer, or bias")
+    biases = biases[["node", "layer", "bias"]].astype({
+        "node": "int64", "layer": "int64", "bias": "float64"
+    })
+    biases = biases.sort_values(["layer", "node"]).reset_index(drop=True)
+    biases["local_node"] = biases.groupby("layer").cumcount() + 1
+    biases = biases[["node", "layer", "local_node", "bias"]]
+else:
+    if not bias_file.exists():
+        raise FileNotFoundError(f"Cannot find bias file: {bias_file}")
+    biases = pd.read_csv(
+        bias_file,
+        sep=r"\s+",
+        comment="#",
+        names=["node", "layer", "local_node", "bias"],
+        dtype={
+            "node": "int64",
+            "layer": "int64",
+            "local_node": "int64",
+            "bias": "float64",
+        },
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -438,6 +611,9 @@ duplicated_local_node_exists = biases.duplicated(
 
 if duplicated_local_node_exists:
     raise ValueError("A local node appears more than once in one bias layer")
+
+if data_source == "output" and set(biases["node"]) != all_nodes:
+    raise ValueError("node.csv and edge.csv contain different FCNN node sets")
 
 
 # -----------------------------------------------------------------------------
@@ -561,10 +737,11 @@ all_bias_values = pd.Series(
 nonzero_bias_values = all_bias_values[all_bias_values != 0.0]
 
 if nonzero_bias_values.empty:
-    raise ValueError("No nonzero bias is available for plotting statistics")
-
-nonzero_bias_mean = nonzero_bias_values.mean()
-nonzero_bias_std = nonzero_bias_values.std(ddof=1)
+    nonzero_bias_mean = 0.0
+    nonzero_bias_std = 0.0
+else:
+    nonzero_bias_mean = nonzero_bias_values.mean()
+    nonzero_bias_std = nonzero_bias_values.std(ddof=1)
 
 print()
 print("Bias summary by topology layer")
@@ -598,40 +775,127 @@ print(bias_summary_for_terminal.to_string(index=False))
 # 18. 畫出 weight 與 bias 的基本圖形
 # -----------------------------------------------------------------------------
 
-# 每個實際存在的有向層對各畫一個 histogram；也涵蓋跨層連線。
-# 不為沒有連線的層對補零，保留輸入檔中每筆權重的正負號。
+# 每個實際存在的有向層對各畫一個 histogram 與 Gaussian Q-Q plot。
+# output 模式使用 Fortran 記錄的生成參數；input 模式沒有生成 law，
+# 因此只以該 block 的 sample mean/std 作為 fitted Gaussian 形狀參考。
 connection_count = len(weight_statistics)
-weight_ncols = min(3, connection_count)
-weight_nrows = (connection_count + weight_ncols - 1) // weight_ncols
 weight_figure, weight_axes = plt.subplots(
-    weight_nrows, weight_ncols,
-    figsize=(5 * weight_ncols, 4 * weight_nrows),
-    sharex=True, squeeze=False,
+    connection_count, 2,
+    figsize=(12, 4 * connection_count),
+    squeeze=False,
 )
-# 共用分箱與 x 軸，讓不同層對的權重範圍可直接比較。
-weight_bin_edges = np.histogram_bin_edges(all_weight_values, bins=60)
-for ax, row, values in zip(
-    weight_axes.flat,
+
+standard_normal = NormalDist()
+maximum_qq_points = 5000
+
+for axes_row, row, values in zip(
+    weight_axes,
     weight_statistics.itertuples(index=False),
     weight_values_for_boxplot,
 ):
-    ax.hist(values, bins=weight_bin_edges, color="tab:blue", alpha=0.8)
-    ax.axvline(0.0, color="black", linewidth=1)
-    ax.set_xlabel("Weight", fontsize=16)
-    ax.set_ylabel("Number of edges", fontsize=16)
-    ax.set_title(
+    histogram_axis, qq_axis = axes_row
+    values = np.asarray(values, dtype=float)
+    empirical_span = np.ptp(values)
+    if empirical_span == 0.0:
+        scale = max(1.0, abs(values[0]))
+        histogram_bins = np.array([
+            values[0] - 1.0e-12 * scale,
+            values[0] + 1.0e-12 * scale,
+        ])
+    else:
+        histogram_bins = np.histogram_bin_edges(values, bins=60)
+
+    histogram_axis.hist(
+        values, bins=histogram_bins, density=True,
+        color="tab:blue", alpha=0.65, label="Empirical weights",
+    )
+    histogram_axis.axvline(0.0, color="black", linewidth=1)
+    reference_mean = row.expected_mean
+    reference_std = row.expected_std
+    if reference_std > 0.0:
+        x_min = min(values.min(), reference_mean - 4.5 * reference_std)
+        x_max = max(values.max(), reference_mean + 4.5 * reference_std)
+        gaussian_x = np.linspace(x_min, x_max, 1000)
+        gaussian_pdf = np.exp(
+            -0.5 * ((gaussian_x - reference_mean) / reference_std) ** 2
+        ) / (reference_std * np.sqrt(2.0 * np.pi))
+        law_label = (
+            "Specified Gaussian" if has_specified_gaussian
+            else "Fitted Gaussian"
+        )
+        histogram_axis.plot(
+            gaussian_x, gaussian_pdf, color="tab:red", linewidth=2,
+            label=law_label,
+        )
+    else:
+        histogram_axis.axvline(
+            reference_mean, color="tab:red", linestyle="--", linewidth=2,
+            label="Specified delta distribution",
+        )
+    histogram_axis.set_xlabel("Weight", fontsize=13)
+    histogram_axis.set_ylabel("Probability density", fontsize=13)
+    histogram_axis.set_title(
         f"Layer {row.source_layer} -> Layer {row.target_layer} "
         f"(edges={row.edge_count})"
     )
-    ax.grid(alpha=0.25)
-    ax.text(
+    histogram_axis.grid(alpha=0.25)
+    histogram_axis.legend(fontsize=9)
+    comparison_text = (
+        f"Sample mean = {row.mean:.6g}\n"
+        f"Sample std = {row.standard_deviation:.6g}\n"
+        f"Target mean = {reference_mean:.6g}\n"
+        f"Target std = {reference_std:.6g}"
+    )
+    if has_specified_gaussian and reference_std > 0.0:
+        comparison_text += (
+            f"\nMean z = {row.mean_z_score:.3g}"
+            f"\nStd z (approx.) = {row.std_z_score_approx:.3g}"
+        )
+    histogram_axis.text(
         0.03, 0.95,
-        f"Mean = {row.mean:.6g}\nSample std = {row.standard_deviation:.6g}",
-        transform=ax.transAxes, ha="left", va="top",
+        comparison_text,
+        transform=histogram_axis.transAxes, ha="left", va="top",
         bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
     )
-for ax in list(weight_axes.flat)[connection_count:]:
-    ax.set_visible(False)
+
+    if reference_std > 0.0:
+        sorted_values = np.sort(values)
+        point_count = min(sorted_values.size, maximum_qq_points)
+        selected_indices = np.linspace(
+            0, sorted_values.size - 1, point_count, dtype=int
+        )
+        probabilities = (selected_indices + 0.5) / sorted_values.size
+        normal_quantiles = np.array([
+            standard_normal.inv_cdf(float(probability))
+            for probability in probabilities
+        ])
+        expected_quantiles = reference_mean + reference_std * normal_quantiles
+        observed_quantiles = sorted_values[selected_indices]
+        qq_axis.scatter(
+            expected_quantiles, observed_quantiles,
+            s=6, alpha=0.45, color="tab:blue",
+        )
+        limit_min = min(expected_quantiles.min(), observed_quantiles.min())
+        limit_max = max(expected_quantiles.max(), observed_quantiles.max())
+        qq_axis.plot(
+            [limit_min, limit_max], [limit_min, limit_max],
+            color="tab:red", linewidth=1.5,
+        )
+        qq_axis.set_xlabel("Gaussian theoretical quantiles")
+        qq_axis.set_ylabel("Observed weight quantiles")
+    else:
+        constant_matches = np.all(values == reference_mean)
+        qq_axis.text(
+            0.5, 0.5,
+            "Exact delta distribution" if constant_matches
+            else "Expected delta distribution does not match data",
+            transform=qq_axis.transAxes, ha="center", va="center",
+        )
+        qq_axis.set_xlabel("Specified value")
+        qq_axis.set_ylabel("Observed weights")
+    qq_axis.set_title("Gaussian Q-Q check")
+    qq_axis.grid(alpha=0.25)
+
 weight_figure.suptitle("Weight distributions by layer connection")
 weight_figure.tight_layout()
 
@@ -663,7 +927,7 @@ bias_histogram_axis.hist(
 bias_histogram_axis.axvline(0.0, color="black", linewidth=1)
 bias_histogram_axis.set_xlabel("Bias", fontsize=16)
 bias_histogram_axis.set_ylabel("Number of nodes", fontsize=16)
-bias_histogram_axis.set_title("All nonzero biases", fontsize=16)
+bias_histogram_axis.set_title("All non-input-layer biases", fontsize=16)
 bias_histogram_axis.grid(alpha=0.25)
 bias_histogram_axis.text(
     0.03,

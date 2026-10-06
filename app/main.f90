@@ -122,18 +122,16 @@ program main
 
       ! Gaussian weight distribution for each adjacent layer connection.
       ! Setting a standard deviation to zero gives a delta distribution.
-      w_mean_by_connection = [ &
-      0.000535779, 0.000993431]
+    !   w_mean_by_connection = [0.000535779, 0.000993431]
+      w_mean_by_connection = [0.03142769, 0.210814945]
 
-      w_std_by_connection = [ &
-      0.031423203_dp, 0.210853791_dp]
-    !   w_std_by_connection=0
+      w_std_by_connection = [0.031423203_dp, 0.210853791_dp]
+      w_std_by_connection=0
 
-      r_by_layer = [ &
-      10.0_dp, 10.0_dp, 10.0_dp]
+      r_by_layer = [10.0_dp, 10.0_dp, 10.0_dp]
+      r_by_layer = 1.0_dp
 
-      sigma_by_layer = [ &
-      1.0_dp, 1.0_dp, 1.0_dp]
+      sigma_by_layer = [1.0_dp, 1.0_dp, 1.0_dp]
 
       param%N = sum(layer_sizes)
       param%directed = .true.
@@ -343,6 +341,26 @@ program main
     end if
     call execute_command_line('mkdir -p output', exitstat=i)
     if (i /= 0) error stop "Cannot create output directory"
+
+    ! A single, non-shuffled run records the original network state.
+    ! Keep these files disabled for a shuffle ensemble so that only the
+    ! dedicated output/shuffle files are replaced in that mode.
+    if (param%n_weight_shuffles == 0) then
+      if (is_fcnn_network) then
+        call write_node_results( &
+          'output/node.csv', r, noise, fixpoint, bias, node_layer)
+      else
+        call write_node_results( &
+          'output/node.csv', r, noise, fixpoint, bias)
+      end if
+      call write_edge_results('output/edge.csv', W, adj_matrix)
+      if (trim(adjustl(param%graph_type)) == "FCNN") then
+        call write_fcnn_parameters( &
+          'output/fcnn_parameters.csv', layer_sizes, &
+          w_mean_by_connection, w_std_by_connection, r, noise, &
+          param%seed, param%n__samples, param%coupling_type)
+      end if
+    end if
 
     ! Theory
     if (q_is_upper .or. q_is_lower) then

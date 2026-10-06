@@ -2,14 +2,14 @@
     ! N and directed are overridden by FCNN/EXTERNAL where applicable.
     N          = 100
     directed   = .false.
-    graph_type = "EXTERNAL"
+    graph_type = "FCNN"
     p          = 0.2
     network_file = "input/uniform/mnist256x1_self1/weighted_matrix.dat"
 /
 
 &dynamics
     bias_file   = "input/uniform/mnist256x1_self1/bias.dat"
-    bias_mode   = "AUTO"
+    bias_mode   = "FILE"
     bias_mean   = 0.0
     bias_std    = 2.0
     r_mean     = 1.0
@@ -23,14 +23,14 @@
 &theory
     n__samples = 1
     verify_lyapunov = .true.
-    n_weight_shuffles = 1000
+    n_weight_shuffles = 0
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
     shuffle_scope     = "LAYER"
     ! 0: all connections; ell>=2: W_(ell,ell-1), valid with LAYER scope.
     shuffle_target_layer = 0
     ! Fraction of eligible positions; nint(fraction * edge_count) are sampled.
-    shuffle_fraction = 1.0
+    shuffle_fraction = 0.2
 /
 
 &simulation

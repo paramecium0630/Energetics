@@ -19,12 +19,15 @@ def histogram_bins(values, count=30):
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
 # Switch between "gaussian" and "shuffle". Paths can be overridden below.
-data_mode = "shuffle"
+data_mode = "gaussian"
 if data_mode not in {"gaussian", "shuffle"}:
     raise ValueError("data_mode must be gaussian or shuffle")
-output_dir = project_dir / "output" / data_mode
-reference_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "all"
-plot_shuffle_comparison = True  # Independent, archived multi-case comparison
+# output_dir = project_dir / "output" / data_mode
+# output_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "layer"
+output_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "gaussian"
+
+reference_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "all"
+plot_shuffle_comparison = False  # Independent, archived multi-case comparison
 ensemble_label = "Gaussian samples" if data_mode == "gaussian" else "Shuffles"
 # output_dir = project_dir / "shuffle_data" / "mnist256x1_linear" / "layer_fraction02"
 figure_dir = project_dir / "figure"
