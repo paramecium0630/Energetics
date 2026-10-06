@@ -1,4 +1,4 @@
-"""用完整 MNIST 測試集，比較 10 個 seed 的單隱藏層 ONNX 模型準確率與交叉熵。"""
+"""用完整 MNIST 測試集，評估指定 ONNX 模型的準確率與交叉熵。"""
 
 import argparse
 import csv
@@ -79,8 +79,11 @@ def main():
                ("t10k-images-idx3-ubyte", "t10k-labels-idx1-ubyte")):
         parser.error(f"找不到完整 MNIST 測試集：{args.data_dir}；可用 --data-dir 指定")
 
-    model_paths = [args.input_dir / f"mnist256x2_self{seed}" / "mnist_fcnn.onnx"
-                   for seed in range(1, 11)]
+    # 原本的 10 個 seed 模型：需要時取消以下兩行註解，並註解單模型設定。
+    # model_paths = [args.input_dir / f"mnist256x2_self{seed}" / "mnist_fcnn.onnx"
+    #                for seed in range(1, 11)]
+
+    model_paths = [args.input_dir / "mnist100x1_cycle" / "mnist_fcnn.onnx"]
     missing = [str(p) for p in model_paths if not p.is_file()]
     if missing:
         parser.error("缺少模型：" + ", ".join(missing))
@@ -91,20 +94,22 @@ def main():
     for seed, model_path in enumerate(model_paths, start=1):
         correct, loss = evaluate_model(model_path, images, labels)
         accuracy = correct / len(labels) * 100
-        results.append({"model": model_path.parent.name, "seed": seed,
+        results.append({"model": model_path.parent.name, "seed": seed if len(model_paths) > 1 else "",
                         "correct": correct, "total": len(labels),
                         "accuracy_percent": accuracy, "cross_entropy": loss})
-        print(f"Seed {seed:2d}: {correct}/{len(labels)} | "
+        print(f"{model_path.parent.name}: {correct}/{len(labels)} | "
               f"accuracy={accuracy:.2f}% | loss={loss:.6f}", flush=True)
 
-    for key, title, unit in [
-        ("accuracy_percent", "Accuracy", " percentage points"),
-        ("cross_entropy", "Cross-entropy", ""),
-    ]:
-        values = np.array([row[key] for row in results])
-        print(f"{title}: mean={values.mean():.6f}, "
-              f"sample std={values.std(ddof=1):.6f}{unit}, "
-              f"range=[{values.min():.6f}, {values.max():.6f}]")
+    # 單一模型沒有跨模型的樣本標準差。
+    if len(results) > 1:
+        for key, title, unit in [
+            ("accuracy_percent", "Accuracy", " percentage points"),
+            ("cross_entropy", "Cross-entropy", ""),
+        ]:
+            values = np.array([row[key] for row in results])
+            print(f"{title}: mean={values.mean():.6f}, "
+                  f"sample std={values.std(ddof=1):.6f}{unit}, "
+                  f"range=[{values.min():.6f}, {values.max():.6f}]")
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

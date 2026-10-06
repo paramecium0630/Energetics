@@ -12,7 +12,7 @@
     bias_mode   = "AUTO"
     bias_mean   = 0.0
     bias_std    = 2.0
-    r_mean     = 10.0
+    r_mean     = 1.0
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
@@ -21,6 +21,7 @@
 /
 
 &theory
+    n__samples = 1
     verify_lyapunov = .true.
     n_weight_shuffles = 1000
     shuffle_seed      = 1001
@@ -29,7 +30,7 @@
     ! 0: all connections; ell>=2: W_(ell,ell-1), valid with LAYER scope.
     shuffle_target_layer = 0
     ! Fraction of eligible positions; nint(fraction * edge_count) are sampled.
-    shuffle_fraction = 0.2
+    shuffle_fraction = 1.0
 /
 
 &simulation

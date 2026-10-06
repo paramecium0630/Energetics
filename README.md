@@ -514,6 +514,26 @@ Python 加總時需保留缺值，例如 `sum(min_count=layer_count)`，避免�
 
 ## Shuffle ensemble
 
+### Gaussian 權重重複抽樣
+
+在 `&theory` 設定 `n__samples = 1000` 可執行 FCNN Gaussian ensemble。
+預設為 `1`，維持原有單次計算。重複抽樣要求 `graph_type="FCNN"`、
+`n_weight_shuffles=0`、`run_simulation=.false.`。
+逐層 Gaussian 平均、標準差與層大小仍由 `app/main.f90` 的 FCNN 分支設定。
+第一組使用該分支生成的權重，之後持續使用同一 RNG stream 重新生成；
+所有樣本固定 r、noise、bias 與節點分層，不校正抽樣後的權重平均或標準差。
+相同 seed 與設定在相同執行環境下可重現整批結果。
+
+輸出至 `output/gaussian/`（重新執行會覆寫同名檔案）：
+
+- `gaussian_trials.csv`：每次的穩定性、最大特徵值實部、總 EPR、權重平方和及 Lyapunov 殘差。
+- `gaussian_layer_energetics.csv`：每次每層的 HR、EPR、WR、UR 及 incoming 權重平方和。
+- `gaussian_parameters.csv`：層大小、Gaussian 參數、r、noise、seed、抽樣次數及 coupling。
+- `node_layers.csv`：`Node,Layer`，與 shuffle 相同的節點分層對照表，所有樣本共用。
+
+不穩定或 marginal 樣本的 energetics 保留為 NaN，不丟棄樣本。
+關閉 `verify_lyapunov` 時殘差欄為 NaN。此模式不覆寫單次節點表與 shuffle 資料。
+
 設定 `n_weight_shuffles > 0` 後，程式會先完成原始網路理論，再執行 shuffled ensemble：
 
 1. 每次從相同的原始 `W` 與 bias 開始；

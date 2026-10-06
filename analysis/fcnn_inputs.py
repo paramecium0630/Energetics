@@ -17,8 +17,8 @@ import pandas as pd
 # 1. 設定輸入檔案的位置
 # -----------------------------------------------------------------------------
 
-directory = "input/uniform/mnist256x3_self1"
-# directory = "/home/para/Python/FCNN/input/uniform/mnist256x1_self1"
+# directory = "input/uniform/mnist256x3_self1"
+directory = "input/mnist100x1_cycle"
 
 base_dir = Path("/home/para/Fortran/Energetics")
 

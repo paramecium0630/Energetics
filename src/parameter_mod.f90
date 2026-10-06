@@ -27,6 +27,7 @@ module parameter_mod
 
         ! Theory and verification
         logical :: verify_lyapunov
+        integer :: n__samples = 1
         integer :: n_weight_shuffles
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
@@ -75,6 +76,7 @@ contains
         real(dp) :: sigma_mean
 
         logical :: verify_lyapunov
+        integer :: n__samples
         integer :: n_weight_shuffles
         integer :: shuffle_seed
         character(len=16) :: shuffle_mode
@@ -95,7 +97,7 @@ contains
                             bias_file, bias_mode, bias_mean, bias_std, &
                             coupling_type, sigma_mean
 
-        namelist /theory/ verify_lyapunov, n_weight_shuffles, shuffle_seed, &
+        namelist /theory/ verify_lyapunov, n__samples, n_weight_shuffles, shuffle_seed, &
                           shuffle_mode, shuffle_scope, &
                           shuffle_target_layer, shuffle_fraction
 
@@ -121,6 +123,7 @@ contains
         sigma_mean  = 0.01_dp
 
         verify_lyapunov = .true.
+        n__samples = 1
         n_weight_shuffles = 0
         shuffle_seed = 1001
         shuffle_mode = "WEIGHT"
@@ -181,6 +184,12 @@ contains
         close(io_unit)
 
         ! Validate parameters
+        if (n__samples < 1) error stop "n__samples must be at least 1"
+        if (n__samples > 1) then
+            if (trim(graph_type) /= "FCNN") error stop "n__samples > 1 requires FCNN"
+            if (n_weight_shuffles /= 0) error stop "Sampling requires n_weight_shuffles=0"
+            if (run_simulation) error stop "Sampling requires run_simulation=.false."
+        end if
         if (n_weight_shuffles < 0) then
             error stop "n_weight_shuffles must be non-negative"
         end if
@@ -232,6 +241,7 @@ contains
         param%sigma_mean  = sigma_mean
 
         param%verify_lyapunov = verify_lyapunov
+        param%n__samples = n__samples
         param%n_weight_shuffles = n_weight_shuffles
         param%shuffle_seed = shuffle_seed
         param%shuffle_mode = shuffle_mode

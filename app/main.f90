@@ -2,6 +2,7 @@
 program main
     use, intrinsic :: iso_fortran_env, only : int64
     use shuffle_mod, only : run_shuffle_ensemble
+    use gaussian_mod, only : run_gaussian_ensemble
     use precision_mod
     use parameter_mod
     use random_mod
@@ -250,6 +251,14 @@ program main
     print *, "-------------------------------"
 
     call record_wall_step("Set dynamics, noise, and bias", wall_step_start, wall_clock_rate)
+
+    if (param%n__samples > 1) then
+      call execute_command_line('mkdir -p output/gaussian', exitstat=i)
+      if (i /= 0) error stop "Cannot create Gaussian output directory"
+      call run_gaussian_ensemble(param, layer_sizes, w_mean_by_connection, &
+        w_std_by_connection, node_layer, r, noise, bias, adj_matrix, W, "output/gaussian")
+      stop
+    end if
 
     ! solve analytic covariance K0, alpha
     allocate(K0_theory(param%N, param%N))
