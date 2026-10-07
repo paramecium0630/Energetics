@@ -519,6 +519,18 @@ Python 加總時需保留缺值，例如 `sum(min_count=layer_count)`，避免�
 
 ## Shuffle ensemble
 
+單次執行、shuffle、Gaussian ensemble 分別在 `output/`、`output/shuffle/`、
+`output/gaussian/` 保存 `dynamics_parameters.csv`，格式為 `Node,Layer,r,noise`。
+`noise` 是噪音 covariance 矩陣的對角元素 `noise(i,i)`，不是其平方根。
+每批樣本共用固定參數，因此只寫一次；封存實驗時請一併保存。
+非 FCNN 的單次輸出以 Layer=0 標記節點。
+
+`shuffle_ensemble.py` 在 Gaussian／訓練網路比較及多組 shuffle 疊圖時，
+會核對每個節點的 r 與 noise；缺少 metadata 或不一致時停止。
+舊資料需重新生成或由該次實驗保存的設定恢復 metadata，不可用目前的 `.nml` 猜測。
+EXTERNAL/ER 單次執行會刪除 `output/fcnn_parameters.csv` 的舊 Gaussian metadata，
+避免 `fcnn_inputs.py` 將新讀入的權重誤認為來自舊的 Gaussian law。
+
 ### Gaussian 權重重複抽樣
 
 在 `&theory` 設定 `n__samples = 1000` 可執行 FCNN Gaussian ensemble。

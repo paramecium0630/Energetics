@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+from energetics_io import require_matching_dynamics
 
 
 def histogram_bins(values, count=30):
@@ -19,12 +20,12 @@ def histogram_bins(values, count=30):
 
 project_dir = Path(__file__).resolve().parents[1] # Path to the project directory
 # Switch between "gaussian" and "shuffle". Paths can be overridden below.
-data_mode = "gaussian"
+data_mode = "shuffle"
 if data_mode not in {"gaussian", "shuffle"}:
     raise ValueError("data_mode must be gaussian or shuffle")
 # output_dir = project_dir / "output" / data_mode
-# output_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "layer"
-output_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "gaussian"
+output_dir = project_dir / "shuffle_data" / "mnist256x3_linear_r1" / "all"
+# output_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "gaussian"
 
 reference_dir = project_dir / "shuffle_data" / "mnist256x1_linear_r1" / "all"
 plot_shuffle_comparison = False  # Independent, archived multi-case comparison
@@ -65,6 +66,7 @@ if data_mode == "gaussian" or (output_dir / "shuffle_trials.csv").exists():
             reference_nodes.sort_values("Node").reset_index(drop=True)
         ):
             raise ValueError("Gaussian and reference node-layer mappings differ")
+        require_matching_dynamics(output_dir, reference_dir, node_layers)
     layer_rates = layer_rates.loc[layer_rates["id"] > 0].copy()
     if not original_layer_rates.empty:
         counts = original_layer_rates.set_index("Layer")["node_count"].sort_index()
@@ -377,8 +379,11 @@ if plot_shuffle_comparison:
     global_total_epr = {}
     global_layer_epr = {}
     comparison_original_layers = None
+    comparison_reference_dir = next(iter(global_shuffle_dirs.values()))
+    comparison_nodes = pd.read_csv(comparison_reference_dir / "node_layers.csv")
 
     for fraction_label, data_dir in global_shuffle_dirs.items():
+        require_matching_dynamics(data_dir, comparison_reference_dir, comparison_nodes)
         comparison_trials = pd.read_csv(data_dir / "shuffle_trials.csv")
         comparison_layers = pd.read_csv(data_dir / "shuffle_layer_energetics.csv")
         comparison_trials["stability"] = comparison_trials["stability"].str.strip()

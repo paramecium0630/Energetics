@@ -4,6 +4,26 @@ module output_mod
 
 contains
 
+    subroutine write_dynamics_parameters(filename, node_layer, r, noise)
+        use, intrinsic :: ieee_arithmetic, only : ieee_is_finite
+        character(len=*), intent(in) :: filename
+        integer, intent(in) :: node_layer(:)
+        real(dp), intent(in) :: r(:), noise(:,:)
+        integer :: n, node, unit, status
+        n = size(r)
+        if (size(node_layer) /= n .or. size(noise,1) /= n .or. size(noise,2) /= n) &
+            error stop "Dynamics parameter dimensions differ"
+        if (.not. all(ieee_is_finite(r)) .or. .not. all(ieee_is_finite(noise))) &
+            error stop "Nonfinite dynamics parameters"
+        open(newunit=unit, file=filename, status="replace", action="write", iostat=status)
+        if (status /= 0) error stop "Cannot open dynamics parameters output"
+        write(unit,'(A)') "Node,Layer,r,noise"
+        do node=1,n
+            write(unit,'(*(G0,:,","))') node,node_layer(node),r(node),noise(node,node)
+        end do
+        close(unit)
+    end subroutine write_dynamics_parameters
+
     subroutine write_node_results( &
         filename, r, noise, fixpoint, bias, node_layer)
         character(len=*), intent(in) :: filename

@@ -535,6 +535,7 @@ weight_summary_for_terminal = weight_statistics[
 ].round(6)
 
 print(weight_summary_for_terminal.to_string(index=False))
+print(f"All weights ||W||_F^2 = {np.square(all_weight_values).sum():.15g}")
 
 
 # -----------------------------------------------------------------------------
@@ -743,9 +744,9 @@ else:
     nonzero_bias_mean = nonzero_bias_values.mean()
     nonzero_bias_std = nonzero_bias_values.std(ddof=1)
 
-print()
-print("Bias summary by topology layer")
-print("------------------------------")
+# print()
+# print("Bias summary by topology layer")
+# print("------------------------------")
 
 bias_columns_for_terminal = [
     "layer",
@@ -759,7 +760,7 @@ bias_summary_for_terminal = bias_statistics[
     bias_columns_for_terminal
 ].round(6)
 
-print(bias_summary_for_terminal.to_string(index=False))
+# print(bias_summary_for_terminal.to_string(index=False))
 
 # print()
 # print(
@@ -775,25 +776,29 @@ print(bias_summary_for_terminal.to_string(index=False))
 # 18. 畫出 weight 與 bias 的基本圖形
 # -----------------------------------------------------------------------------
 
-# 每個實際存在的有向層對各畫一個 histogram 與 Gaussian Q-Q plot。
+# 每個有向層對畫 histogram；只有 output 模式另畫 Gaussian Q-Q plot。
 # output 模式使用 Fortran 記錄的生成參數；input 模式沒有生成 law，
 # 因此只以該 block 的 sample mean/std 作為 fitted Gaussian 形狀參考。
 connection_count = len(weight_statistics)
-weight_figure, weight_axes = plt.subplots(
-    connection_count, 2,
-    figsize=(12, 4 * connection_count),
-    squeeze=False,
-)
+show_qq = data_source == "output"
+weight_figure = plt.figure(figsize=(12, 4 * connection_count))
+weight_grid = weight_figure.add_gridspec(connection_count, 2)
+weight_axes = [weight_figure.add_subplot(weight_grid[i, 0])
+               for i in range(connection_count)]
+weight_boxplot_axis = weight_figure.add_subplot(weight_grid[:, 1])
+if show_qq:
+    qq_figure, qq_axes = plt.subplots(
+        connection_count, 1, figsize=(6, 4 * connection_count), squeeze=False,
+    )
 
 standard_normal = NormalDist()
 maximum_qq_points = 5000
 
-for axes_row, row, values in zip(
+for connection_index, (histogram_axis, row, values) in enumerate(zip(
     weight_axes,
     weight_statistics.itertuples(index=False),
     weight_values_for_boxplot,
-):
-    histogram_axis, qq_axis = axes_row
+)):
     values = np.asarray(values, dtype=float)
     empirical_span = np.ptp(values)
     if empirical_span == 0.0:
@@ -858,6 +863,9 @@ for axes_row, row, values in zip(
         bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
     )
 
+    if not show_qq:
+        continue
+    qq_axis = qq_axes[connection_index, 0]
     if reference_std > 0.0:
         sorted_values = np.sort(values)
         point_count = min(sorted_values.size, maximum_qq_points)
@@ -893,15 +901,11 @@ for axes_row, row, values in zip(
         )
         qq_axis.set_xlabel("Specified value")
         qq_axis.set_ylabel("Observed weights")
-    qq_axis.set_title("Gaussian Q-Q check")
+    qq_axis.set_title(f"Gaussian Q-Q: Layer {row.source_layer} -> Layer {row.target_layer}")
     qq_axis.grid(alpha=0.25)
 
-weight_figure.suptitle("Weight distributions by layer connection")
-weight_figure.tight_layout()
-
-# 原有 weight boxplot 與 bias 圖另排成一列。
-figure, axes = plt.subplots(1, 3, figsize=(18, 4.5))
-weight_boxplot_axis, bias_histogram_axis, bias_boxplot_axis = axes
+if show_qq:
+    qq_figure.tight_layout()
 
 
 # 不同 layer connections 的 weight boxplot。
@@ -915,6 +919,12 @@ weight_boxplot_axis.set_xlabel("Source layer -> target layer", fontsize=16)
 weight_boxplot_axis.set_ylabel("Weight", fontsize=16)
 weight_boxplot_axis.set_title("Weights by layer", fontsize=16)
 weight_boxplot_axis.grid(alpha=0.25)
+weight_figure.suptitle("Weight distributions and box plots")
+weight_figure.tight_layout()
+
+# Bias distributions and box plots share their own figure.
+figure, (bias_histogram_axis, bias_boxplot_axis) = plt.subplots(1, 2, figsize=(12, 4.5))
+figure.suptitle("Bias distribution and box plots")
 
 
 # 所有非 input-layer 節點的 bias histogram。
@@ -1007,20 +1017,20 @@ def plot_layer_strength_distributions(column, layer_numbers, direction, color):
     return statistics
 
 
-in_strength_statistics = plot_layer_strength_distributions(
-    "kappa_in", range(2, last_layer + 1), "in", "tab:green"
-)
-out_strength_statistics = plot_layer_strength_distributions(
-    "kappa_out", range(1, last_layer), "out", "tab:purple"
-)
+# in_strength_statistics = plot_layer_strength_distributions(
+#     "kappa_in", range(2, last_layer + 1), "in", "tab:green"
+# )
+# out_strength_statistics = plot_layer_strength_distributions(
+#     "kappa_out", range(1, last_layer), "out", "tab:purple"
+# )
 
 # 分別列出所畫層範圍的極值，不混入邊界層結構上必然為零的值。
-for direction, statistics in (
-    ("In", in_strength_statistics), ("Out", out_strength_statistics)
-):
-    print()
-    print(f"{direction} weighted degree by layer (signed sum of weights)")
-    print(statistics.to_string(index=False, float_format=lambda x: f"{x:.8g}"))
+# for direction, statistics in (
+#     ("In", in_strength_statistics), ("Out", out_strength_statistics)
+# ):
+#     print()
+#     print(f"{direction} weighted degree by layer (signed sum of weights)")
+#     print(statistics.to_string(index=False, float_format=lambda x: f"{x:.8g}"))
 
 # -----------------------------------------------------------------------------
 # 20. 各層 Laplace 分布擬合（與 train_FCNN/extract_parameters.py 相同估計）
@@ -1071,21 +1081,6 @@ def plot_laplace_fit(values, parameter, layer_label):
     axes[1].set_yscale("log")
     fig.tight_layout()
 
-
-# for connection, values in zip(
-#     connection_pairs.itertuples(index=False), weight_values_for_boxplot
-# ):
-#     source, target = connection.source_layer, connection.target_layer
-#     plot_laplace_fit(values, "weight", f"{source} -> {target}")
-
-# # 不納入輸入層的預設零 bias；其餘層包含零值，與原有 boxplot 一致。
-# for label, values in zip(bias_boxplot_labels, bias_values_for_boxplot):
-#     plot_laplace_fit(values, "bias", label)
-
-# laplace_statistics = pd.DataFrame(laplace_rows)
-# print("Laplace fits (mean-centered; b is scale, not standard deviation)")
-# print(laplace_statistics.to_string(index=False))
-
 # Excel 用的 Tab 分隔表格。根據實際 topology 動態加入所有
 # layer connections 與所有 non-input layers，避免切換網路深度後
 # header 和數值錯位。standard deviation 使用 sample std（ddof=1）。
@@ -1104,24 +1099,24 @@ for row in weight_statistics.itertuples(index=False):
         [row.mean, row.standard_deviation]
     )
 
-for row in bias_statistics.itertuples(index=False):
-    if row.layer == 1:
-        continue
+# for row in bias_statistics.itertuples(index=False):
+#     if row.layer == 1:
+#         continue
+#
+#     excel_headers.extend([
+#         f"Mean bias (L{row.layer})",
+#         f"Std bias (L{row.layer})",
+#     ])
+#     excel_values.extend(
+#         [row.mean, row.standard_deviation]
+#     )
 
-    excel_headers.extend([
-        f"Mean bias (L{row.layer})",
-        f"Std bias (L{row.layer})",
-    ])
-    excel_values.extend(
-        [row.mean, row.standard_deviation]
-    )
-
+# print()
+# print("Node-strength summary for all layers")
+# print("------------------------------------")
+# print(strength_statistics.round(8).to_string(index=False))
 print()
-print("Node-strength summary for all layers")
-print("------------------------------------")
-print(strength_statistics.round(8).to_string(index=False))
-print()
-print("Weight and bias summary by layer")
+print("Weight summary by layer")
 print("------------------------------------")
 print("\t".join(excel_headers))
 print("\t".join(f"{value:.10g}" for value in excel_values))

@@ -12,7 +12,7 @@
     bias_mode   = "FILE"
     bias_mean   = 0.0
     bias_std    = 2.0
-    r_mean     = 1.0
+    r_mean     = 5.0
     r_std      = 0.1
     weight_mean = 0.0
     weight_std  = 0.2 
@@ -26,11 +26,11 @@
     n_weight_shuffles = 0
     shuffle_seed      = 1001
     shuffle_mode      = "WEIGHT"
-    shuffle_scope     = "LAYER"
+    shuffle_scope     = "GLOBAL"
     ! 0: all connections; ell>=2: W_(ell,ell-1), valid with LAYER scope.
     shuffle_target_layer = 0
     ! Fraction of eligible positions; nint(fraction * edge_count) are sampled.
-    shuffle_fraction = 0.2
+    shuffle_fraction = 1.0
 /
 
 &simulation

@@ -15,6 +15,8 @@ program main
     implicit none
 
     integer :: i
+    integer :: metadata_unit, metadata_status
+    logical :: metadata_exists
     integer :: relax_percent, sample_percent
     integer, parameter :: max_wall_steps = 16
     integer, parameter :: fixedpoint_max_iterations = 100
@@ -354,11 +356,21 @@ program main
           'output/node.csv', r, noise, fixpoint, bias)
       end if
       call write_edge_results('output/edge.csv', W, adj_matrix)
+      call write_dynamics_parameters('output/dynamics_parameters.csv', node_layer, r, noise)
       if (trim(adjustl(param%graph_type)) == "FCNN") then
         call write_fcnn_parameters( &
           'output/fcnn_parameters.csv', layer_sizes, &
           w_mean_by_connection, w_std_by_connection, r, noise, &
           param%seed, param%n__samples, param%coupling_type)
+      else
+        ! An external/ER run must not inherit an earlier Gaussian generating law.
+        inquire(file='output/fcnn_parameters.csv', exist=metadata_exists)
+        if (metadata_exists) then
+          open(newunit=metadata_unit, file='output/fcnn_parameters.csv', status='old', iostat=metadata_status)
+          if (metadata_status /= 0) error stop "Cannot open stale FCNN metadata"
+          close(metadata_unit, status='delete', iostat=metadata_status)
+          if (metadata_status /= 0) error stop "Cannot remove stale FCNN metadata"
+        end if
       end if
     end if
 

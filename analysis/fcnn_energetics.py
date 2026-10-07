@@ -14,9 +14,12 @@ from energetics_io import read_node_energetics
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 INPUT_FILE = PROJECT_ROOT / "output" / "energetics_theory.csv"
-# INPUT_FILE = PROJECT_ROOT / "shuffle_data" / "mnist256x1_linear_r1" / "energetics_theory.csv"
+# INPUT_FILE = PROJECT_ROOT / "shuffle_data" / "mnist256x3_linear_r1" / "energetics_theory.csv"
 
 FIGURE_DIR = PROJECT_ROOT / "figure"
+
+X_TICK_FONTSIZE = 14
+Y_TICK_FONTSIZE = 14
 
 TOTAL_FIGURE_FILE = (
     FIGURE_DIR
@@ -191,8 +194,8 @@ percentage_bars = axes[0].bar(
     alpha=0.8,
 )
 axes[0].set_title("Percentage of total entropy production")
-axes[0].set_xlabel("Layer")
-axes[0].set_ylabel("Percentage (%)")
+axes[0].set_xlabel("Layer", fontsize=12)
+axes[0].set_ylabel("Percentage (%)", fontsize=12)
 axes[0].grid(axis="y", alpha=0.25)
 axes[0].bar_label(percentage_bars, fmt="%.2f%%", padding=3)
 
@@ -221,15 +224,19 @@ for box in entropy_boxplot["boxes"]:
     box.set_alpha(0.6)
 
 axes[1].axhline(0.0, color="black", linewidth=1.0)
-axes[1].set_title("Entropy production rate of each layer")
-axes[1].set_xlabel("Layer")
-axes[1].set_ylabel("Entropy production rate of each node")
+axes[1].set_title("Entropy production rate of each layer", fontsize=12)
+axes[1].set_xlabel("Layer", fontsize=12)
+axes[1].set_ylabel("Entropy production rate of each node", fontsize=12)
 axes[1].grid(axis="y", alpha=0.25)
 
 figure.suptitle(
     f"Theoretical entropy production (total = {total_entropy:.6g})",
     fontsize=16,
 )
+
+for axis in axes:
+    axis.tick_params(axis="x", labelsize=X_TICK_FONTSIZE)
+    axis.tick_params(axis="y", labelsize=Y_TICK_FONTSIZE)
 
 figure.tight_layout(
     rect=(0.0, 0.0, 1.0, 0.96)
@@ -296,9 +303,11 @@ for index, (layer, label, values) in enumerate(zip(
         linewidth=1.5,
         label="Mean",
     )
-    axis.set_title(f"{label} (L{layer})")
-    axis.set_xlabel("Node-level EPR")
-    axis.set_ylabel("Number of nodes")
+    axis.set_title(f"{label} (L{layer})", fontsize=12)
+    axis.set_xlabel("Node-level EPR", fontsize=12)
+    axis.set_ylabel("Number of nodes", fontsize=12)
+    axis.tick_params(axis="x", labelsize=X_TICK_FONTSIZE)
+    axis.tick_params(axis="y", labelsize=Y_TICK_FONTSIZE)
     axis.grid(axis="y", alpha=0.25)
     axis.legend()
     axis.text(

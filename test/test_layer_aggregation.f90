@@ -1,7 +1,7 @@
 program test_layer_aggregation
     use precision_mod
     use energetics_mod, only : aggregate_layer_energetics
-    use output_mod, only : write_layer_energetics_results, write_energetics_results
+    use output_mod, only : write_layer_energetics_results, write_energetics_results, write_dynamics_parameters
     implicit none
     real(dp), parameter :: tol = 1.0e-12_dp
     integer :: labels(5), unit, status, ell, read_layer, read_count
@@ -9,6 +9,7 @@ program test_layer_aggregation
     real(dp) :: heat(5), work(5), internal(5), entropy(5), sigma(5)
     real(dp), allocatable :: lh(:), lw(:), lu(:), ls(:)
     real(dp) :: totals(4), averages(4), expected(4)
+    real(dp) :: noise_matrix(5,5), r_values(5), read_r, read_noise
     character(len=512) :: line
     character(len=*), parameter :: filename = "test_layer_aggregation.csv"
 
@@ -18,6 +19,21 @@ program test_layer_aggregation
     work = [-0.5_dp, -1.5_dp, -1.0_dp, -2.0_dp, -4.0_dp]
     internal = heat - work
     sigma = [1.0_dp, 2.0_dp, 3.0_dp, 4.0_dp, 5.0_dp]
+    noise_matrix = 0.0_dp
+    r_values = [2.0_dp, 3.0_dp, 4.0_dp, 5.0_dp, 6.0_dp]
+    do ell=1,5
+        noise_matrix(ell,ell)=sigma(ell)
+    end do
+    call write_dynamics_parameters(filename,labels,r_values,noise_matrix)
+    open(newunit=unit,file=filename,status="old",action="read")
+    read(unit,'(A)') line
+    if (trim(line) /= "Node,Layer,r,noise") error stop "Dynamics CSV header"
+    do ell=1,5
+        read(unit,*) read_count,read_layer,read_r,read_noise
+        if (read_count /= ell .or. read_layer /= labels(ell)) error stop "Dynamics mapping"
+        if (read_r /= r_values(ell) .or. read_noise /= sigma(ell)) error stop "Dynamics values"
+    end do
+    close(unit,status="delete")
     entropy = -2.0_dp * heat / sigma
     call aggregate_layer_energetics( &
         labels, heat, work, internal, entropy, counts, lh, lw, lu, ls)

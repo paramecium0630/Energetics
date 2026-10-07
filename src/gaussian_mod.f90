@@ -7,7 +7,7 @@ module gaussian_mod
     use theory_mod, only : solve_fixed_point_nonlinear, solve_lyapunov_triangular_blocked, &
         analytic_result, compute_energetics_theory, compute_lyapunov_residual
     use energetics_mod, only : aggregate_layer_energetics
-    use output_mod, only : write_node_layers, write_fcnn_parameters
+    use output_mod, only : write_node_layers, write_fcnn_parameters, write_dynamics_parameters
     implicit none
     private
     public :: run_gaussian_ensemble
@@ -30,6 +30,7 @@ contains
         allocate(k(param%N,param%N), fixed(param%N), norms(size(sizes)))
         missing = ieee_value(0.0_dp, ieee_quiet_nan)
         call write_node_layers(directory//"/node_layers.csv", layers)
+        call write_dynamics_parameters(directory//"/dynamics_parameters.csv", layers, r, noise)
         open(newunit=total_unit, file=directory//"/gaussian_trials.csv", status="replace", iostat=ios)
         if (ios /= 0) error stop "Cannot open Gaussian trials output"
         open(newunit=layer_unit, file=directory//"/gaussian_layer_energetics.csv", status="replace", iostat=ios)

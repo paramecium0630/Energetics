@@ -1,7 +1,7 @@
 module shuffle_mod
     use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_quiet_nan
     use energetics_mod, only : aggregate_layer_energetics
-    use output_mod, only : write_node_layers
+    use output_mod, only : write_node_layers, write_dynamics_parameters
     use precision_mod
     use random_mod, only : initialize_seed, shuffle_real_values
     use network_mod, only : shuffle_fcnn_weights
@@ -228,6 +228,9 @@ contains
     end if
 
     call write_node_layers(node_layers_filename, node_layer)
+    call write_dynamics_parameters( &
+        node_layers_filename(:scan(node_layers_filename, '/', back=.true.)) // &
+        "dynamics_parameters.csv", node_layer, r, noise)
 
     ! Allocate reusable arrays
     allocate(W_trial(n, n))
