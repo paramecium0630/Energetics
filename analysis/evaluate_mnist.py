@@ -69,7 +69,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, default=folder.parent / "input")
     parser.add_argument("--data-dir", type=Path,
-                        default=folder.parent / "data/MNIST/raw",
+                        default=folder.parent / "mnist_data/MNIST/raw",
                         help="含 t10k IDX 檔案的 MNIST/raw 目錄")
     parser.add_argument("--output", type=Path,
                         help="選填：將各模型結果寫入指定 CSV；預設只顯示")
@@ -83,7 +83,7 @@ def main():
     # model_paths = [args.input_dir / f"mnist256x2_self{seed}" / "mnist_fcnn.onnx"
     #                for seed in range(1, 11)]
 
-    model_paths = [args.input_dir / "mnist100x1_cycle" / "mnist_fcnn.onnx"]
+    model_paths = [args.input_dir / "uniform" / "mnist64x3_self1" / "mnist_fcnn.onnx"]
     missing = [str(p) for p in model_paths if not p.is_file()]
     if missing:
         parser.error("缺少模型：" + ", ".join(missing))
